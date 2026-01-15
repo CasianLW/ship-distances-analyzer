@@ -166,7 +166,20 @@ class DistanceAnalyzerApp:
             + "\n\nExample:\n"
             "2892971\t690\t749\t21400.290\t1057.780\tTRUE\tTRUE\tFALSE\t"
             "FALSE\tFALSE\tFALSE\tFALSE\tFALSE\tFALSE\tFALSE\tFALSE\t"
-            "FALSE\tFALSE\tFALSE\t0.000\t1\tTRUE"
+            "FALSE\tFALSE\tFALSE\t0.000\t1\tTRUE\n\n"
+            "Analysis explanation:\n"
+            "- Total distance CSV rows: raw number of rows in the distances CSV.\n"
+            "- Total distances (pairs): unique (load_port_id, disch_port_id) pairs.\n"
+            "  If rows > pairs, the CSV contains duplicate pairs.\n"
+            "- Total load ports and total disch ports come from the Ports CSV after\n"
+            "  applying the inactive-ports checkbox.\n"
+            "- Number of distances found: how many load x disch combinations exist in\n"
+            "  the distances CSV (direct or reverse).\n"
+            "- Number of distances missing: how many load x disch combinations do not\n"
+            "  exist in the distances CSV (direct or reverse).\n"
+            "- If total pairs > found, the extra pairs are not used by the current\n"
+            "  load/disch port lists (inactive ports, non-load/disch ports, or ports\n"
+            "  not present in the current Ports CSV)."
         )
         messagebox.showinfo("CSV Format Info", message)
 
