@@ -68,6 +68,7 @@ class DistanceAnalyzerApp:
         self.distances_csv_path = None
         self.ports_data: PortsData | None = None
         self.distance_pairs: set[tuple[str, str]] | None = None
+        self.distance_rows = 0
 
         self.analysis_result = None
         self.analysis_thread = None
@@ -197,12 +198,15 @@ class DistanceAnalyzerApp:
         if not path:
             return
         try:
-            self.distance_pairs = self._read_distances_csv(path)
+            self.distance_pairs, self.distance_rows = self._read_distances_csv(path)
         except Exception as exc:
             messagebox.showerror("Distances CSV Error", str(exc))
             return
         self.distances_csv_path = path
-        self.dist_status.set(f"Complete Distances CSV: loaded ({len(self.distance_pairs)} pairs)")
+        self.dist_status.set(
+            "Complete Distances CSV: loaded "
+            f"({self.distance_rows} rows, {len(self.distance_pairs)} pairs)"
+        )
         self.reset_analysis()
 
     def remove_ports_csv(self) -> None:
@@ -214,6 +218,7 @@ class DistanceAnalyzerApp:
     def remove_distances_csv(self) -> None:
         self.distances_csv_path = None
         self.distance_pairs = None
+        self.distance_rows = 0
         self.dist_status.set("Complete Distances CSV: not loaded")
         self.reset_analysis()
 
@@ -271,6 +276,7 @@ class DistanceAnalyzerApp:
         lines.append("Metric\tValue")
         lines.append(f"Total load ports\t{summary['total_load_ports']}")
         lines.append(f"Total disch ports\t{summary['total_disch_ports']}")
+        lines.append(f"Total distance CSV rows\t{summary['total_distance_rows']}")
         lines.append(f"Total distances (pairs)\t{summary['total_distances']}")
         lines.append(f"Number of distances found\t{summary['found']}")
         lines.append(f"Number of distances missing\t{summary['missing']}")
@@ -333,17 +339,19 @@ class DistanceAnalyzerApp:
 
         return PortsData(rows=rows, load_ports=load_ports, disch_ports=disch_ports, by_id=by_id)
 
-    def _read_distances_csv(self, path: str) -> set[tuple[str, str]]:
+    def _read_distances_csv(self, path: str) -> tuple[set[tuple[str, str]], int]:
         with open(path, newline="", encoding="utf-8-sig") as file:
             reader = csv.DictReader(file)
             self._validate_headers(reader.fieldnames, DIST_COLUMNS, "Complete Distances CSV")
             pairs = set()
+            row_count = 0
             for row in reader:
+                row_count += 1
                 load_id = str(row["load_port_id"]).strip()
                 disch_id = str(row["disch_port_id"]).strip()
                 if load_id and disch_id:
                     pairs.add((load_id, disch_id))
-            return pairs
+            return pairs, row_count
 
     def _validate_headers(self, actual, expected, label: str) -> None:
         if not actual:
@@ -362,6 +370,7 @@ class DistanceAnalyzerApp:
         disch_ports = ports.disch_ports
 
         total_pairs = len(distance_pairs)
+        total_rows = self.distance_rows
         total_load = len(load_ports)
         total_disch = len(disch_ports)
 
@@ -401,6 +410,7 @@ class DistanceAnalyzerApp:
             "summary": {
                 "total_load_ports": total_load,
                 "total_disch_ports": total_disch,
+                "total_distance_rows": total_rows,
                 "total_distances": total_pairs,
                 "found": found,
                 "missing": len(missing),
