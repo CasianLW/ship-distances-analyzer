@@ -274,6 +274,7 @@ class DistanceAnalyzerApp:
         lines = []
         lines.append("Summary")
         lines.append("Metric\tValue")
+        lines.append(f"Total ports CSV rows\t{summary['total_ports_rows']}")
         lines.append(f"Total load ports\t{summary['total_load_ports']}")
         lines.append(f"Total disch ports\t{summary['total_disch_ports']}")
         lines.append(f"Total distance CSV rows\t{summary['total_distance_rows']}")
@@ -371,6 +372,7 @@ class DistanceAnalyzerApp:
 
         total_pairs = len(distance_pairs)
         total_rows = self.distance_rows
+        total_rows = len(ports.rows)
         total_load = len(load_ports)
         total_disch = len(disch_ports)
 
@@ -408,6 +410,7 @@ class DistanceAnalyzerApp:
 
         return {
             "summary": {
+                "total_ports_rows": total_rows,
                 "total_load_ports": total_load,
                 "total_disch_ports": total_disch,
                 "total_distance_rows": total_rows,
