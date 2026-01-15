@@ -294,6 +294,10 @@ class DistanceAnalyzerApp:
         lines.append(f"Total distances (pairs)\t{summary['total_distances']}")
         lines.append(f"Number of distances found\t{summary['found']}")
         lines.append(f"Number of distances missing\t{summary['missing']}")
+        lines.append(
+            "Number of missing ports from distances\t"
+            f"{summary['missing_ports_count']}"
+        )
         lines.append("")
         lines.append("Missing distances")
         lines.append("Load port name\tLoad port id\tDisch port name\tDisch port id")
@@ -301,6 +305,11 @@ class DistanceAnalyzerApp:
             lines.append(
                 f"{row['load_name']}\t{row['load_id']}\t{row['disch_name']}\t{row['disch_id']}"
             )
+        lines.append("")
+        lines.append("Missing ports from distances")
+        lines.append("Port id")
+        for port_id in result["missing_ports"]:
+            lines.append(port_id)
         return "\n".join(lines)
 
     def copy_output(self) -> None:
@@ -384,8 +393,8 @@ class DistanceAnalyzerApp:
         disch_ports = ports.disch_ports
 
         total_pairs = len(distance_pairs)
-        total_rows = self.distance_rows
-        total_rows = len(ports.rows)
+        total_distance_rows = self.distance_rows
+        total_ports_rows = len(ports.rows)
         total_load = len(load_ports)
         total_disch = len(disch_ports)
 
@@ -393,6 +402,11 @@ class DistanceAnalyzerApp:
         found = 0
         total_checks = max(total_load * total_disch, 1)
         checked = 0
+
+        distance_port_ids = set()
+        for load_id, disch_id in distance_pairs:
+            distance_port_ids.add(load_id)
+            distance_port_ids.add(disch_id)
 
         for load in load_ports:
             load_id = str(load["id"]).strip()
@@ -421,17 +435,22 @@ class DistanceAnalyzerApp:
                     progress_value = int((checked / total_checks) * 100)
                     self.root.after(0, self.progress.configure, {"value": progress_value})
 
+        port_ids = {str(row["id"]).strip() for row in load_ports + disch_ports}
+        missing_ports = sorted(pid for pid in port_ids if pid and pid not in distance_port_ids)
+
         return {
             "summary": {
-                "total_ports_rows": total_rows,
+                "total_ports_rows": total_ports_rows,
                 "total_load_ports": total_load,
                 "total_disch_ports": total_disch,
-                "total_distance_rows": total_rows,
+                "total_distance_rows": total_distance_rows,
                 "total_distances": total_pairs,
                 "found": found,
                 "missing": len(missing),
+                "missing_ports_count": len(missing_ports),
             },
             "missing": missing,
+            "missing_ports": missing_ports,
         }
 
 
