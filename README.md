@@ -55,3 +55,5 @@ pyinstaller --windowed --onefile --icon danalyser-icon.png distances-analyzer-gu
 ```
 
 This will generate a macOS app bundle in `dist/`.
+
+- Inside ressources folder, we can find some files that helped us build complex analyzer; the code behind our real distance generator found, typescript version that we translated to py.
