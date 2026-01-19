@@ -17,7 +17,7 @@ Tkinter tool to analyze missing distances between load and discharge ports.
 ## Run locally
 
 ```bash
-python distances-analyser.py
+python distances-analyzer-gui.py
 ```
 
 ## Generate an EXE (Windows)
@@ -36,7 +36,7 @@ pip install pyinstaller
 2. Build the EXE (console hidden):
 
 ```bash
-pyinstaller --noconsole --onefile --icon danalyser-icon.png distances-analyser.py
+pyinstaller --noconsole --onefile --icon danalyser-icon.png distances-analyzer-gui.py
 ```
 
 3. The EXE will be at:
@@ -51,7 +51,7 @@ dist/main.exe
 -   If you want a macOS `.app`, you can run:
 
 ```bash
-pyinstaller --windowed --onefile --icon danalyser-icon.png distances-analyser.py
+pyinstaller --windowed --onefile --icon danalyser-icon.png distances-analyzer-gui.py
 ```
 
 This will generate a macOS app bundle in `dist/`.

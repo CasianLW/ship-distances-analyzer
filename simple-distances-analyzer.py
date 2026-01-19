@@ -61,7 +61,7 @@ class PortsData:
 class DistanceAnalyzerApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Ship Port Distance Helper")
+        self.root.title("Simple Distances Analyzer: load to disch")
         self.root.geometry("980x720")
 
         self.ports_csv_path = None
@@ -359,12 +359,16 @@ class DistanceAnalyzerApp:
             if is_load:
                 load_ports.append(row)
 
-        return PortsData(rows=rows, load_ports=load_ports, disch_ports=disch_ports, by_id=by_id)
+        return PortsData(
+            rows=rows, load_ports=load_ports, disch_ports=disch_ports, by_id=by_id
+        )
 
     def _read_distances_csv(self, path: str) -> tuple[set[tuple[str, str]], int]:
         with open(path, newline="", encoding="utf-8-sig") as file:
             reader = csv.DictReader(file)
-            self._validate_headers(reader.fieldnames, DIST_COLUMNS, "Complete Distances CSV")
+            self._validate_headers(
+                reader.fieldnames, DIST_COLUMNS, "Complete Distances CSV"
+            )
             pairs = set()
             row_count = 0
             for row in reader:
@@ -432,10 +436,14 @@ class DistanceAnalyzerApp:
                 checked += 1
                 if checked % 200 == 0 or checked == total_checks:
                     progress_value = int((checked / total_checks) * 100)
-                    self.root.after(0, self.progress.configure, {"value": progress_value})
+                    self.root.after(
+                        0, self.progress.configure, {"value": progress_value}
+                    )
 
         port_ids = {str(row["id"]).strip() for row in load_ports + disch_ports}
-        missing_ports = sorted(pid for pid in port_ids if pid and pid not in distance_port_ids)
+        missing_ports = sorted(
+            pid for pid in port_ids if pid and pid not in distance_port_ids
+        )
 
         return {
             "summary": {
