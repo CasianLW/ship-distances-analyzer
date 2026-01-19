@@ -355,10 +355,9 @@ class DistanceAnalyzerApp:
             if not include_inactive and not is_active:
                 continue
             by_id[port_id] = row
+            disch_ports.append(row)
             if is_load:
                 load_ports.append(row)
-            else:
-                disch_ports.append(row)
 
         return PortsData(rows=rows, load_ports=load_ports, disch_ports=disch_ports, by_id=by_id)
 
