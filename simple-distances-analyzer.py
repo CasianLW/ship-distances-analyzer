@@ -1,4 +1,5 @@
 import csv
+import os
 import threading
 import tkinter as tk
 from dataclasses import dataclass
@@ -74,6 +75,18 @@ class DistanceAnalyzerApp:
         self.analysis_thread = None
 
         self._build_ui()
+        self._try_load_defaults()
+
+    def _try_load_defaults(self) -> None:
+        base_dir = os.path.dirname(__file__)
+        defaults_dir = os.path.join(base_dir, "csvFiles")
+        ports_path = os.path.join(defaults_dir, "ports.csv")
+        distances_path = os.path.join(defaults_dir, "complete arw-distances.csv")
+
+        if os.path.isfile(ports_path):
+            self._load_ports_from_path(ports_path)
+        if os.path.isfile(distances_path):
+            self._load_distances_from_path(distances_path)
 
     def _build_ui(self) -> None:
         top = ttk.Frame(self.root, padding=12)
@@ -194,6 +207,17 @@ class DistanceAnalyzerApp:
         )
         if not path:
             return
+        self._load_ports_from_path(path)
+
+    def load_distances_csv(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Select Complete Distances CSV", filetypes=[("CSV Files", "*.csv")]
+        )
+        if not path:
+            return
+        self._load_distances_from_path(path)
+
+    def _load_ports_from_path(self, path: str) -> None:
         try:
             ports = self._read_ports_csv(path)
         except Exception as exc:
@@ -204,12 +228,7 @@ class DistanceAnalyzerApp:
         self.ports_status.set(f"Ports CSV: loaded ({len(ports.rows)} rows)")
         self.reset_analysis()
 
-    def load_distances_csv(self) -> None:
-        path = filedialog.askopenfilename(
-            title="Select Complete Distances CSV", filetypes=[("CSV Files", "*.csv")]
-        )
-        if not path:
-            return
+    def _load_distances_from_path(self, path: str) -> None:
         try:
             self.distance_pairs, self.distance_rows = self._read_distances_csv(path)
         except Exception as exc:

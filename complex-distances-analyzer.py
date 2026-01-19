@@ -1,4 +1,5 @@
 import csv
+import os
 import threading
 import tkinter as tk
 from dataclasses import dataclass
@@ -115,6 +116,21 @@ class ComplexDistanceAnalyzerApp:
         self.analysis_thread = None
 
         self._build_ui()
+        self._try_load_defaults()
+
+    def _try_load_defaults(self) -> None:
+        base_dir = os.path.dirname(__file__)
+        defaults_dir = os.path.join(base_dir, "csvFiles")
+        ports_path = os.path.join(defaults_dir, "ports.csv")
+        rules_path = os.path.join(defaults_dir, "rules.csv")
+        segments_path = os.path.join(defaults_dir, "distances-arw.csv")
+
+        if os.path.isfile(ports_path):
+            self._load_ports_from_path(ports_path)
+        if os.path.isfile(rules_path):
+            self._load_rules_from_path(rules_path)
+        if os.path.isfile(segments_path):
+            self._load_segments_from_path(segments_path)
 
     def _build_ui(self) -> None:
         top = ttk.Frame(self.root, padding=12)
@@ -240,6 +256,25 @@ class ComplexDistanceAnalyzerApp:
         )
         if not path:
             return
+        self._load_ports_from_path(path)
+
+    def load_rules_csv(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Select Distance Rules CSV", filetypes=[("CSV Files", "*.csv")]
+        )
+        if not path:
+            return
+        self._load_rules_from_path(path)
+
+    def load_segments_csv(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Select Distances ARW (segments) CSV", filetypes=[("CSV Files", "*.csv")]
+        )
+        if not path:
+            return
+        self._load_segments_from_path(path)
+
+    def _load_ports_from_path(self, path: str) -> None:
         try:
             ports = self._read_ports_csv(path)
         except Exception as exc:
@@ -250,12 +285,7 @@ class ComplexDistanceAnalyzerApp:
         self.ports_status.set(f"Ports CSV: loaded ({len(ports.rows)} rows)")
         self.reset_analysis()
 
-    def load_rules_csv(self) -> None:
-        path = filedialog.askopenfilename(
-            title="Select Distance Rules CSV", filetypes=[("CSV Files", "*.csv")]
-        )
-        if not path:
-            return
+    def _load_rules_from_path(self, path: str) -> None:
         try:
             self.rules_data = self._read_rules_csv(path)
         except Exception as exc:
@@ -265,12 +295,7 @@ class ComplexDistanceAnalyzerApp:
         self.rules_status.set(f"Distance Rules CSV: loaded ({len(self.rules_data)} rows)")
         self.reset_analysis()
 
-    def load_segments_csv(self) -> None:
-        path = filedialog.askopenfilename(
-            title="Select Distances ARW (segments) CSV", filetypes=[("CSV Files", "*.csv")]
-        )
-        if not path:
-            return
+    def _load_segments_from_path(self, path: str) -> None:
         try:
             self.segments_data, self.segments_rows = self._read_segments_csv(path)
         except Exception as exc:
