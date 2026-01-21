@@ -8,6 +8,11 @@ import tkinter.ttk  # Ensures PyInstaller bundles submodules
 from dataclasses import dataclass
 from tkinter import filedialog, messagebox, ttk
 
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+except Exception:
+    DND_FILES = None
+    TkinterDnD = None
 
 PORT_COLUMNS = [
     "id",
@@ -76,9 +81,62 @@ class DistanceAnalyzerApp:
 
         self.analysis_result = None
         self.analysis_thread = None
+        self.dnd_available = False
+        self.dnd_provider = "none"
 
         self._build_ui()
         self._try_load_defaults()
+        self._setup_dnd()
+
+    def _setup_dnd(self) -> None:
+        if TkinterDnD is not None:
+            self.dnd_available = True
+            self.dnd_provider = "tkinterdnd2"
+            return
+        try:
+            self.root.tk.eval("package require tkdnd")
+            self.dnd_available = True
+            self.dnd_provider = "tkdnd"
+        except tk.TclError:
+            self.dnd_available = False
+            self.dnd_provider = "none"
+
+    def _register_drop_target(self, widget: tk.Widget, callback) -> None:
+        if not self.dnd_available:
+            return
+        if self.dnd_provider == "tkinterdnd2":
+            widget.drop_target_register(DND_FILES)
+            widget.dnd_bind(
+                "<<Drop>>",
+                lambda event: self._handle_drop(event, callback),
+            )
+        elif self.dnd_provider == "tkdnd":
+            self.root.tk.call("tkdnd::drop_target", "register", widget, "DND_Files")
+            widget.bind(
+                "<<Drop>>",
+                lambda event: self._handle_drop(event, callback),
+            )
+
+    def _handle_drop(self, event: tk.Event, callback) -> None:
+        data = getattr(event, "data", "")
+        if not data:
+            return
+        paths = self.root.tk.splitlist(data)
+        if not paths:
+            return
+        callback(paths[0])
+
+    def _build_drop_square(self, parent: tk.Widget, callback) -> tk.Label:
+        label = tk.Label(
+            parent,
+            text="Drop",
+            width=6,
+            height=2,
+            relief="ridge",
+            bd=2,
+        )
+        self._register_drop_target(label, callback)
+        return label
 
     def _try_load_defaults(self) -> None:
         base_dir = os.path.dirname(__file__)
@@ -117,6 +175,9 @@ class DistanceAnalyzerApp:
         ttk.Button(ports_row, text="Add Ports CSV", command=self.load_ports_csv).pack(
             side="left"
         )
+        self._build_drop_square(ports_row, self._load_ports_from_path).pack(
+            side="left", padx=6
+        )
         ttk.Button(
             ports_row, text="Remove Ports CSV", command=self.remove_ports_csv
         ).pack(side="left", padx=6)
@@ -127,6 +188,9 @@ class DistanceAnalyzerApp:
         ttk.Button(
             dist_row, text="Add Complete Distances CSV", command=self.load_distances_csv
         ).pack(side="left")
+        self._build_drop_square(dist_row, self._load_distances_from_path).pack(
+            side="left", padx=6
+        )
         ttk.Button(
             dist_row, text="Remove Distances CSV", command=self.remove_distances_csv
         ).pack(side="left", padx=6)
@@ -484,7 +548,7 @@ class DistanceAnalyzerApp:
 
 
 def main() -> None:
-    root = tk.Tk()
+    root = TkinterDnD.Tk() if TkinterDnD is not None else tk.Tk()
     app = DistanceAnalyzerApp(root)
     root.mainloop()
 

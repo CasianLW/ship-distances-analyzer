@@ -3,6 +3,9 @@ import runpy
 import subprocess
 import sys
 import tkinter as tk
+import tkinter.filedialog  # Ensure bundled in PyInstaller
+import tkinter.messagebox  # Ensure bundled in PyInstaller
+import tkinter.ttk  # Ensure bundled in PyInstaller
 from tkinter import messagebox, ttk
 
 
@@ -13,7 +16,7 @@ def _resource_path(relative_path: str) -> str:
 
 def _launch_tool(root: tk.Tk, tool_key: str) -> None:
     subprocess.Popen([sys.executable, "--tool", tool_key])
-    root.destroy()
+    root.withdraw()
 
 
 def _run_tool(tool_key: str) -> None:

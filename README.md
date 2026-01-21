@@ -37,7 +37,7 @@ pip install pyinstaller
 
 ```bash
 # Windows (PowerShell / CMD - use ; as separator)
-pyinstaller --noconsole --onefile --icon danalyser-icon.png --add-data "simple-distances-analyzer.py;." --add-data "complex-distances-analyzer.py;." --hidden-import tkinter.filedialog --hidden-import tkinter.messagebox --hidden-import tkinter.ttk distances-analyzer-gui.py
+pyinstaller --noconsole --onefile --icon danalyser-icon.png --add-data "simple-distances-analyzer.py;." --add-data "complex-distances-analyzer.py;." --hidden-import tkinter.filedialog --hidden-import tkinter.messagebox --hidden-import tkinter.ttk --collect-submodules tkinter distances-analyzer-gui.py
 ```
 
 3. The EXE will be at:
@@ -53,8 +53,12 @@ dist/main.exe
 
 ```bash
 # macOS (zsh - use : as separator)
-pyinstaller --windowed --onefile --icon danalyser-icon.png --add-data "simple-distances-analyzer.py:." --add-data "complex-distances-analyzer.py:." --hidden-import tkinter.filedialog --hidden-import tkinter.messagebox --hidden-import tkinter.ttk distances-analyzer-gui.py
+pyinstaller --windowed --onefile --icon danalyser-icon.png --add-data "simple-distances-analyzer.py:." --add-data "complex-distances-analyzer.py:." --hidden-import tkinter.filedialog --hidden-import tkinter.messagebox --hidden-import tkinter.ttk --collect-submodules tkinter distances-analyzer-gui.py
 ```
+
+### Drag & drop support
+- Optional: install `tkinterdnd2` to enable drag & drop in the small "Drop" squares.
+- If you install it, add `--collect-submodules tkinterdnd2` to the build command.
 
 This will generate a macOS app bundle in `dist/`.
 

@@ -8,6 +8,11 @@ import tkinter.ttk  # Ensures PyInstaller bundles submodules
 from dataclasses import dataclass
 from tkinter import filedialog, messagebox, ttk
 
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+except Exception:
+    DND_FILES = None
+    TkinterDnD = None
 
 PORT_COLUMNS = [
     "id",
@@ -117,9 +122,62 @@ class ComplexDistanceAnalyzerApp:
 
         self.analysis_result = None
         self.analysis_thread = None
+        self.dnd_available = False
+        self.dnd_provider = "none"
 
         self._build_ui()
         self._try_load_defaults()
+        self._setup_dnd()
+
+    def _setup_dnd(self) -> None:
+        if TkinterDnD is not None:
+            self.dnd_available = True
+            self.dnd_provider = "tkinterdnd2"
+            return
+        try:
+            self.root.tk.eval("package require tkdnd")
+            self.dnd_available = True
+            self.dnd_provider = "tkdnd"
+        except tk.TclError:
+            self.dnd_available = False
+            self.dnd_provider = "none"
+
+    def _register_drop_target(self, widget: tk.Widget, callback) -> None:
+        if not self.dnd_available:
+            return
+        if self.dnd_provider == "tkinterdnd2":
+            widget.drop_target_register(DND_FILES)
+            widget.dnd_bind(
+                "<<Drop>>",
+                lambda event: self._handle_drop(event, callback),
+            )
+        elif self.dnd_provider == "tkdnd":
+            self.root.tk.call("tkdnd::drop_target", "register", widget, "DND_Files")
+            widget.bind(
+                "<<Drop>>",
+                lambda event: self._handle_drop(event, callback),
+            )
+
+    def _handle_drop(self, event: tk.Event, callback) -> None:
+        data = getattr(event, "data", "")
+        if not data:
+            return
+        paths = self.root.tk.splitlist(data)
+        if not paths:
+            return
+        callback(paths[0])
+
+    def _build_drop_square(self, parent: tk.Widget, callback) -> tk.Label:
+        label = tk.Label(
+            parent,
+            text="Drop",
+            width=6,
+            height=2,
+            relief="ridge",
+            bd=2,
+        )
+        self._register_drop_target(label, callback)
+        return label
 
     def _try_load_defaults(self) -> None:
         base_dir = os.path.dirname(__file__)
@@ -162,6 +220,9 @@ class ComplexDistanceAnalyzerApp:
         ttk.Button(ports_row, text="Add Ports CSV", command=self.load_ports_csv).pack(
             side="left"
         )
+        self._build_drop_square(ports_row, self._load_ports_from_path).pack(
+            side="left", padx=6
+        )
         ttk.Button(
             ports_row, text="Remove Ports CSV", command=self.remove_ports_csv
         ).pack(side="left", padx=6)
@@ -172,6 +233,9 @@ class ComplexDistanceAnalyzerApp:
         ttk.Button(
             rules_row, text="Add Distance Rules CSV", command=self.load_rules_csv
         ).pack(side="left")
+        self._build_drop_square(rules_row, self._load_rules_from_path).pack(
+            side="left", padx=6
+        )
         ttk.Button(
             rules_row, text="Remove Distance Rules CSV", command=self.remove_rules_csv
         ).pack(side="left", padx=6)
@@ -184,6 +248,9 @@ class ComplexDistanceAnalyzerApp:
             text="Add Distances ARW (segments) CSV",
             command=self.load_segments_csv,
         ).pack(side="left")
+        self._build_drop_square(segments_row, self._load_segments_from_path).pack(
+            side="left", padx=6
+        )
         ttk.Button(
             segments_row,
             text="Remove Distances ARW CSV",
@@ -393,10 +460,13 @@ class ComplexDistanceAnalyzerApp:
         lines.append(f"Missing complete distances\t{summary['missing_complete']}")
         lines.append("")
         lines.append("Missing Distances ARW (segments)")
-        lines.append("From port name\tFrom port id\tTo port name\tTo port id")
+        lines.append(
+            "From port name\tFrom port id\tTo port name\tTo port id\tRule name\tRule id"
+        )
         for row in missing_segments:
             lines.append(
-                f"{row['from_name']}\t{row['from_id']}\t{row['to_name']}\t{row['to_id']}"
+                f"{row['from_name']}\t{row['from_id']}\t{row['to_name']}\t"
+                f"{row['to_id']}\t{row['rule_name']}\t{row['rule_id']}"
             )
         lines.append("")
         lines.append("Missing ARW Complete Distances")
@@ -713,6 +783,8 @@ class ComplexDistanceAnalyzerApp:
                                         "to_name": ports_by_id.get(to_id, {}).get(
                                             "port", ""
                                         ),
+                                        "rule_name": rule["distance_rule_name"],
+                                        "rule_id": rule["id"],
                                     }
                                 )
 
@@ -741,7 +813,7 @@ class ComplexDistanceAnalyzerApp:
 
 
 def main() -> None:
-    root = tk.Tk()
+    root = TkinterDnD.Tk() if TkinterDnD is not None else tk.Tk()
     app = ComplexDistanceAnalyzerApp(root)
     root.mainloop()
 
