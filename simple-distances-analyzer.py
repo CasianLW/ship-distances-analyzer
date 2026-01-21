@@ -2,6 +2,9 @@ import csv
 import os
 import threading
 import tkinter as tk
+import tkinter.filedialog  # Ensures PyInstaller bundles submodules
+import tkinter.messagebox  # Ensures PyInstaller bundles submodules
+import tkinter.ttk  # Ensures PyInstaller bundles submodules
 from dataclasses import dataclass
 from tkinter import filedialog, messagebox, ttk
 

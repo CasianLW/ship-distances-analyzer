@@ -36,7 +36,8 @@ pip install pyinstaller
 2. Build the EXE (console hidden):
 
 ```bash
-pyinstaller --noconsole --onefile --icon danalyser-icon.png distances-analyzer-gui.py
+# Windows (PowerShell / CMD - use ; as separator)
+pyinstaller --noconsole --onefile --icon danalyser-icon.png --add-data "simple-distances-analyzer.py;." --add-data "complex-distances-analyzer.py;." --hidden-import tkinter.filedialog --hidden-import tkinter.messagebox --hidden-import tkinter.ttk distances-analyzer-gui.py
 ```
 
 3. The EXE will be at:
@@ -51,7 +52,8 @@ dist/main.exe
 -   If you want a macOS `.app`, you can run:
 
 ```bash
-pyinstaller --windowed --onefile --icon danalyser-icon.png distances-analyzer-gui.py
+# macOS (zsh - use : as separator)
+pyinstaller --windowed --onefile --icon danalyser-icon.png --add-data "simple-distances-analyzer.py:." --add-data "complex-distances-analyzer.py:." --hidden-import tkinter.filedialog --hidden-import tkinter.messagebox --hidden-import tkinter.ttk distances-analyzer-gui.py
 ```
 
 This will generate a macOS app bundle in `dist/`.
