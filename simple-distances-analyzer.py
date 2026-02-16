@@ -18,15 +18,15 @@ PORT_COLUMNS = [
     "id",
     "port",
     "load",
-    "region_id",
     "mgo_at_port",
+    "region_id",
     "port_country_id",
     "port_code",
     "port_type",
     "is_active_port",
     "coordinates",
     "port_nickname",
-    "updated_at",
+    "refer_port_id",
 ]
 
 DIST_COLUMNS = [
@@ -59,12 +59,36 @@ def _as_bool(value: str) -> bool:
     return str(value).strip().lower() in {"true", "1", "yes", "y", "t"}
 
 
+def _normalize_id(value: object) -> str:
+    if value is None:
+        return ""
+    raw = str(value).strip()
+    if raw == "":
+        return ""
+    try:
+        num = float(raw)
+        if num.is_integer():
+            return str(int(num))
+        return str(num)
+    except ValueError:
+        return raw
+
+
+def _effective_port_id(port: dict) -> str:
+    """ID to use for distance lookup: refer_port_id if set, else port id."""
+    ref = _normalize_id(port.get("refer_port_id", ""))
+    if ref:
+        return ref
+    return _normalize_id(port.get("id", ""))
+
+
 @dataclass
 class PortsData:
     rows: list
     load_ports: list
     disch_ports: list
     by_id: dict
+    by_effective_id: dict
 
 
 class DistanceAnalyzerApp:
@@ -433,7 +457,7 @@ class DistanceAnalyzerApp:
         include_inactive = self.include_inactive_var.get()
 
         for row in rows:
-            port_id = str(row["id"]).strip()
+            port_id = _normalize_id(row["id"])
             if not port_id:
                 continue
             is_load = _as_bool(row["load"])
@@ -445,8 +469,16 @@ class DistanceAnalyzerApp:
             if is_load:
                 load_ports.append(row)
 
+        by_effective_id = {}
+        for row in by_id.values():
+            by_effective_id[_effective_port_id(row)] = row
+
         return PortsData(
-            rows=rows, load_ports=load_ports, disch_ports=disch_ports, by_id=by_id
+            rows=rows,
+            load_ports=load_ports,
+            disch_ports=disch_ports,
+            by_id=by_id,
+            by_effective_id=by_effective_id,
         )
 
     def _read_distances_csv(self, path: str) -> tuple[set[tuple[str, str]], int]:
@@ -459,8 +491,8 @@ class DistanceAnalyzerApp:
             row_count = 0
             for row in reader:
                 row_count += 1
-                load_id = str(row["load_port_id"]).strip()
-                disch_id = str(row["disch_port_id"]).strip()
+                load_id = _normalize_id(row["load_port_id"])
+                disch_id = _normalize_id(row["disch_port_id"])
                 if load_id and disch_id:
                     pairs.add((load_id, disch_id))
             return pairs, row_count
@@ -498,16 +530,18 @@ class DistanceAnalyzerApp:
             distance_port_ids.add(disch_id)
 
         for load in load_ports:
-            load_id = str(load["id"]).strip()
+            load_eff = _effective_port_id(load)
+            load_id = _normalize_id(load["id"])
             load_name = load["port"]
             for disch in disch_ports:
-                disch_id = str(disch["id"]).strip()
-                if load_id == disch_id:
+                disch_eff = _effective_port_id(disch)
+                disch_id = _normalize_id(disch["id"])
+                if load_eff == disch_eff:
                     checked += 1
                     continue
-                if (load_id, disch_id) in distance_pairs or (
-                    disch_id,
-                    load_id,
+                if (load_eff, disch_eff) in distance_pairs or (
+                    disch_eff,
+                    load_eff,
                 ) in distance_pairs:
                     found += 1
                 else:
@@ -526,9 +560,11 @@ class DistanceAnalyzerApp:
                         0, self.progress.configure, {"value": progress_value}
                     )
 
-        port_ids = {str(row["id"]).strip() for row in load_ports + disch_ports}
+        effective_ids = {
+            _effective_port_id(row) for row in load_ports + disch_ports
+        }
         missing_ports = sorted(
-            pid for pid in port_ids if pid and pid not in distance_port_ids
+            eid for eid in effective_ids if eid and eid not in distance_port_ids
         )
 
         return {

@@ -18,15 +18,15 @@ PORT_COLUMNS = [
     "id",
     "port",
     "load",
-    "region_id",
     "mgo_at_port",
+    "region_id",
     "port_country_id",
     "port_code",
     "port_type",
     "is_active_port",
     "coordinates",
     "port_nickname",
-    "updated_at",
+    "refer_port_id",
 ]
 
 RULE_COLUMNS = [
@@ -97,12 +97,21 @@ def _normalize_id(value: object) -> str:
         return raw
 
 
+def _effective_port_id(port: dict) -> str:
+    """ID to use for distance lookup: refer_port_id if set, else port id."""
+    ref = _normalize_id(port.get("refer_port_id", ""))
+    if ref:
+        return ref
+    return _normalize_id(port.get("id", ""))
+
+
 @dataclass
 class PortsData:
     rows: list
     load_ports: list
     disch_ports: list
     by_id: dict
+    by_effective_id: dict
 
 
 class ComplexDistanceAnalyzerApp:
@@ -529,8 +538,16 @@ class ComplexDistanceAnalyzerApp:
             if is_load:
                 load_ports.append(row)
 
+        by_effective_id = {}
+        for row in by_id.values():
+            by_effective_id[_effective_port_id(row)] = row
+
         return PortsData(
-            rows=rows, load_ports=load_ports, disch_ports=disch_ports, by_id=by_id
+            rows=rows,
+            load_ports=load_ports,
+            disch_ports=disch_ports,
+            by_id=by_id,
+            by_effective_id=by_effective_id,
         )
 
     def _read_rules_csv(self, path: str) -> list:
@@ -668,24 +685,20 @@ class ComplexDistanceAnalyzerApp:
             waypoints = list(reversed(waypoints))
 
         if not waypoints:
-            seg = self._lookup_segment(
-                _normalize_id(load_port["id"]), _normalize_id(disch_port["id"])
-            )
+            load_eff = _effective_port_id(load_port)
+            disch_eff = _effective_port_id(disch_port)
+            seg = self._lookup_segment(load_eff, disch_eff)
             if not seg:
-                seg = self._lookup_segment(
-                    _normalize_id(disch_port["id"]), _normalize_id(load_port["id"])
-                )
+                seg = self._lookup_segment(disch_eff, load_eff)
             if not seg:
-                return None, [
-                    (_normalize_id(load_port["id"]), _normalize_id(disch_port["id"]))
-                ]
+                return None, [(load_eff, disch_eff)]
             return {"segment": seg}, []
 
         route = [disch_port] + waypoints + [load_port]
         filtered_route = []
         for port in route:
-            if not filtered_route or _normalize_id(port["id"]) != _normalize_id(
-                filtered_route[-1]["id"]
+            if not filtered_route or _effective_port_id(port) != _effective_port_id(
+                filtered_route[-1]
             ):
                 filtered_route.append(port)
 
@@ -693,13 +706,11 @@ class ComplexDistanceAnalyzerApp:
         for idx in range(len(filtered_route) - 1):
             from_port = filtered_route[idx]
             to_port = filtered_route[idx + 1]
-            seg = self._lookup_segment(
-                _normalize_id(from_port["id"]), _normalize_id(to_port["id"])
-            )
+            from_eff = _effective_port_id(from_port)
+            to_eff = _effective_port_id(to_port)
+            seg = self._lookup_segment(from_eff, to_eff)
             if not seg:
-                missing_segments.append(
-                    (_normalize_id(from_port["id"]), _normalize_id(to_port["id"]))
-                )
+                missing_segments.append((from_eff, to_eff))
                 return None, missing_segments
 
         return {"segment": True}, []
@@ -711,6 +722,7 @@ class ComplexDistanceAnalyzerApp:
         load_ports = ports.load_ports
         disch_ports = ports.disch_ports
         ports_by_id = ports.by_id
+        ports_by_effective_id = ports.by_effective_id
 
         total_ports_rows = len(ports.rows)
         total_load = len(load_ports)
@@ -776,13 +788,13 @@ class ComplexDistanceAnalyzerApp:
                                 missing_segments_rows.append(
                                     {
                                         "from_id": from_id,
-                                        "from_name": ports_by_id.get(from_id, {}).get(
-                                            "port", ""
-                                        ),
+                                        "from_name": ports_by_effective_id.get(
+                                            from_id, {}
+                                        ).get("port", ""),
                                         "to_id": to_id,
-                                        "to_name": ports_by_id.get(to_id, {}).get(
-                                            "port", ""
-                                        ),
+                                        "to_name": ports_by_effective_id.get(
+                                            to_id, {}
+                                        ).get("port", ""),
                                         "rule_name": rule["distance_rule_name"],
                                         "rule_id": rule["id"],
                                     }
