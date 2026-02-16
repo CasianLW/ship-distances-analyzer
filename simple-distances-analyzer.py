@@ -19,6 +19,7 @@ PORT_COLUMNS = [
     "port",
     "load",
     "mgo_at_port",
+    "is_archived",
     "region_id",
     "port_country_id",
     "port_code",
