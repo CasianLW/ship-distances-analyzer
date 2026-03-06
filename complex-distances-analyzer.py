@@ -106,6 +106,14 @@ def _effective_port_id(port: dict) -> str:
     return _normalize_id(port.get("id", ""))
 
 
+def _resolve_master_port(port: dict, ports_by_id: dict) -> dict:
+    """Return refer port row when available; otherwise the original port row."""
+    ref = _normalize_id(port.get("refer_port_id", ""))
+    if ref and ref in ports_by_id:
+        return ports_by_id[ref]
+    return port
+
+
 @dataclass
 class PortsData:
     rows: list
@@ -741,20 +749,36 @@ class ComplexDistanceAnalyzerApp:
 
         expected_complete = 0
         generated_complete = 0
+        processed_effective_pairs = set()
 
         total_pairs = max(total_load * total_disch, 1)
         checked = 0
 
         for disch_port in disch_ports:
             for load_port in load_ports:
-                rules_for_pair = self._find_rules_for_pair(disch_port, load_port)
+                disch_master = _resolve_master_port(disch_port, ports_by_id)
+                load_master = _resolve_master_port(load_port, ports_by_id)
+                disch_eff = _effective_port_id(disch_master)
+                load_eff = _effective_port_id(load_master)
+                pair_key = f"{disch_eff}:{load_eff}"
+                if pair_key in processed_effective_pairs:
+                    checked += 1
+                    if checked % 200 == 0 or checked == total_pairs:
+                        progress_value = int((checked / total_pairs) * 100)
+                        self.root.after(
+                            0, self.progress.configure, {"value": progress_value}
+                        )
+                    continue
+                processed_effective_pairs.add(pair_key)
+
+                rules_for_pair = self._find_rules_for_pair(disch_master, load_master)
                 if not rules_for_pair:
                     missing_complete.append(
                         {
-                            "disch_name": disch_port["port"],
-                            "disch_id": disch_port["id"],
-                            "load_name": load_port["port"],
-                            "load_id": load_port["id"],
+                            "disch_name": disch_master["port"],
+                            "disch_id": disch_master["id"],
+                            "load_name": load_master["port"],
+                            "load_id": load_master["id"],
                             "rule_name": "",
                             "priority": "",
                             "reason": "no_rule",
@@ -765,8 +789,8 @@ class ComplexDistanceAnalyzerApp:
                         expected_complete += 1
                         rule = rule_info["rule"]
                         dist, missing_segments = self._build_distance_for_rule(
-                            disch_port,
-                            load_port,
+                            disch_master,
+                            load_master,
                             rule,
                             rule_info["reversed"],
                             ports_by_id,
@@ -776,10 +800,10 @@ class ComplexDistanceAnalyzerApp:
                         else:
                             missing_complete.append(
                                 {
-                                    "disch_name": disch_port["port"],
-                                    "disch_id": disch_port["id"],
-                                    "load_name": load_port["port"],
-                                    "load_id": load_port["id"],
+                                    "disch_name": disch_master["port"],
+                                    "disch_id": disch_master["id"],
+                                    "load_name": load_master["port"],
+                                    "load_id": load_master["id"],
                                     "rule_name": rule["distance_rule_name"],
                                     "priority": rule["order_of_priority"],
                                     "reason": "missing_segments",
