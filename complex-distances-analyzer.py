@@ -107,11 +107,15 @@ def _effective_port_id(port: dict) -> str:
 
 
 def _resolve_master_port(port: dict, ports_by_id: dict) -> dict:
-    """Return refer port row when available; otherwise the original port row."""
-    ref = _normalize_id(port.get("refer_port_id", ""))
-    if ref and ref in ports_by_id:
-        return ports_by_id[ref]
-    return port
+    """Return the final non-alias refer target; fallback to the given row."""
+    current = port
+    seen = set()
+    while True:
+        ref = _normalize_id(current.get("refer_port_id", ""))
+        if not ref or ref in seen or ref not in ports_by_id:
+            return current
+        seen.add(ref)
+        current = ports_by_id[ref]
 
 
 @dataclass
@@ -549,7 +553,10 @@ class ComplexDistanceAnalyzerApp:
 
         by_effective_id = {}
         for row in by_id.values():
-            by_effective_id[_effective_port_id(row)] = row
+            eff = _effective_port_id(row)
+            # Prefer master row for display when aliases share same effective id.
+            if eff not in by_effective_id or _normalize_id(row.get("id")) == eff:
+                by_effective_id[eff] = row
 
         return PortsData(
             rows=rows,
@@ -690,7 +697,7 @@ class ComplexDistanceAnalyzerApp:
         ports_by_id: dict,
     ) -> tuple[dict | None, list[tuple[str, str]]]:
         waypoints = [
-            ports_by_id.get(_normalize_id(wp))
+            _resolve_master_port(ports_by_id.get(_normalize_id(wp)), ports_by_id)
             for wp in rule["waypoints"]
             if _normalize_id(wp) in ports_by_id
         ]
@@ -735,7 +742,6 @@ class ComplexDistanceAnalyzerApp:
         load_ports = ports.load_ports
         disch_ports = ports.disch_ports
         ports_by_id = ports.by_id
-        ports_by_effective_id = ports.by_effective_id
 
         total_ports_rows = len(ports.rows)
         total_load = len(load_ports)
@@ -814,16 +820,18 @@ class ComplexDistanceAnalyzerApp:
                                 if key in missing_segments_set:
                                     continue
                                 missing_segments_set.add(key)
+                                from_port = _resolve_master_port(
+                                    ports_by_id.get(from_id, {}), ports_by_id
+                                )
+                                to_port = _resolve_master_port(
+                                    ports_by_id.get(to_id, {}), ports_by_id
+                                )
                                 missing_segments_rows.append(
                                     {
                                         "from_id": from_id,
-                                        "from_name": ports_by_effective_id.get(
-                                            from_id, {}
-                                        ).get("port", ""),
+                                        "from_name": from_port.get("port", ""),
                                         "to_id": to_id,
-                                        "to_name": ports_by_effective_id.get(
-                                            to_id, {}
-                                        ).get("port", ""),
+                                        "to_name": to_port.get("port", ""),
                                         "rule_name": rule["distance_rule_name"],
                                         "rule_id": rule["id"],
                                     }
