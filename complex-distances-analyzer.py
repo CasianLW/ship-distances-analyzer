@@ -615,10 +615,14 @@ class ComplexDistanceAnalyzerApp:
     def _validate_headers(self, actual, expected, label: str) -> None:
         if not actual:
             raise ValueError(f"{label} has no headers.")
-        trimmed = [h.strip() for h in actual]
-        if trimmed != expected:
+        actual_set = {str(h).strip() for h in actual if h is not None}
+        expected_set = set(expected)
+        missing = expected_set - actual_set
+        if missing:
             raise ValueError(
-                f"{label} header mismatch.\nExpected:\n{expected}\nGot:\n{trimmed}"
+                f"{label} is missing required columns (order does not matter):\n"
+                f"Missing: {sorted(missing)}\n"
+                f"Required: {sorted(expected_set)}"
             )
 
     def _find_rules_for_pair(self, disch_port: dict, load_port: dict) -> list:
