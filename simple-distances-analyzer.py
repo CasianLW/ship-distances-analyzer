@@ -189,6 +189,14 @@ class DistanceAnalyzerApp:
         )
         inactive_chk.pack(side="left", padx=12)
 
+        self.all_ports_var = tk.BooleanVar(value=False)
+        all_ports_chk = ttk.Checkbutton(
+            top,
+            text="Analyse ALL ports (not only load ports)",
+            variable=self.all_ports_var,
+        )
+        all_ports_chk.pack(side="left", padx=12)
+
         files = ttk.LabelFrame(self.root, text="CSV Inputs", padding=12)
         files.pack(fill="x", padx=12, pady=(0, 12))
 
@@ -280,6 +288,9 @@ class DistanceAnalyzerApp:
             "  applying the inactive-ports checkbox.\n"
             "- Number of distances found: how many load x disch combinations exist in\n"
             "  the distances CSV (direct or reverse).\n"
+            "- 'Analyse ALL ports' checkbox: when checked, every port is treated as an\n"
+            "  origin (not only load ports), and each pair of ports is checked exactly\n"
+            "  once (a distance covers both directions).\n"
             "- Number of distances missing: how many load x disch combinations do not\n"
             "  exist in the distances CSV (direct or reverse).\n"
             "- If total pairs > found, the extra pairs are not used by the current\n"
@@ -398,6 +409,7 @@ class DistanceAnalyzerApp:
         lines = []
         lines.append("Summary")
         lines.append("Metric\tValue")
+        lines.append(f"Analysis mode\t{summary['analysis_mode']}")
         lines.append(f"Total ports CSV rows\t{summary['total_ports_rows']}")
         lines.append(f"Total load ports\t{summary['total_load_ports']}")
         lines.append(f"Total disch ports\t{summary['total_disch_ports']}")
@@ -513,6 +525,12 @@ class DistanceAnalyzerApp:
 
         load_ports = ports.load_ports
         disch_ports = ports.disch_ports
+        all_ports_mode = self.all_ports_var.get()
+
+        # In all-ports mode, every port is treated as an origin and each
+        # unordered pair is checked only once (a distance row covers both
+        # directions).
+        origin_ports = disch_ports if all_ports_mode else load_ports
 
         total_pairs = len(distance_pairs)
         total_distance_rows = self.distance_rows
@@ -522,7 +540,10 @@ class DistanceAnalyzerApp:
 
         missing = []
         found = 0
-        total_checks = max(total_load * total_disch, 1)
+        if all_ports_mode:
+            total_checks = max(total_disch * (total_disch - 1) // 2, 1)
+        else:
+            total_checks = max(total_load * total_disch, 1)
         checked = 0
 
         distance_port_ids = set()
@@ -530,11 +551,12 @@ class DistanceAnalyzerApp:
             distance_port_ids.add(load_id)
             distance_port_ids.add(disch_id)
 
-        for load in load_ports:
+        for index, load in enumerate(origin_ports):
             load_eff = _effective_port_id(load)
             load_id = _normalize_id(load["id"])
             load_name = load["port"]
-            for disch in disch_ports:
+            partners = disch_ports[index + 1 :] if all_ports_mode else disch_ports
+            for disch in partners:
                 disch_eff = _effective_port_id(disch)
                 disch_id = _normalize_id(disch["id"])
                 if load_eff == disch_eff:
@@ -570,6 +592,11 @@ class DistanceAnalyzerApp:
 
         return {
             "summary": {
+                "analysis_mode": (
+                    "ALL ports x ALL ports"
+                    if all_ports_mode
+                    else "Load ports x ALL ports"
+                ),
                 "total_ports_rows": total_ports_rows,
                 "total_load_ports": total_load,
                 "total_disch_ports": total_disch,
