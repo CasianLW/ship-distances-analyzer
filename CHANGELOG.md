@@ -4,6 +4,14 @@ All notable changes to Ship Port Distance Helper are documented here.
 
 The version number lives in `version.py` and is shown in the app window.
 
+## [0.27] - 2026-09-02
+
+### Changed
+
+-   The "all ports" checkbox (both analyzers) no longer analyzes ALL ports x ALL ports, which flooded the output with pairs between two non-load ports (60,000+ missing distances that no voyage needs).
+-   New scope when checked: every pair involving at least one load port — i.e. all load ports x all ports AND all ports x all load ports (the same pairs mirrored) — each pair analyzed exactly once.
+-   Checkbox renamed to "All load ports x ALL ports (each pair once)"; analysis mode in the summary now reads "ALL LOAD PORTS x ALL ports (each pair once)".
+
 ## [0.26] - 2026-09-02
 
 ### Added

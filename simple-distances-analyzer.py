@@ -192,7 +192,7 @@ class DistanceAnalyzerApp:
         self.all_ports_var = tk.BooleanVar(value=False)
         all_ports_chk = ttk.Checkbutton(
             top,
-            text="Analyse ALL ports (not only load ports)",
+            text="All load ports x ALL ports (each pair once)",
             variable=self.all_ports_var,
         )
         all_ports_chk.pack(side="left", padx=12)
@@ -288,9 +288,11 @@ class DistanceAnalyzerApp:
             "  applying the inactive-ports checkbox.\n"
             "- Number of distances found: how many load x disch combinations exist in\n"
             "  the distances CSV (direct or reverse).\n"
-            "- 'Analyse ALL ports' checkbox: when checked, every port is treated as an\n"
-            "  origin (not only load ports), and each pair of ports is checked exactly\n"
-            "  once (a distance covers both directions).\n"
+            "- 'All load ports x ALL ports' checkbox: when checked, every pair\n"
+            "  involving at least one load port is checked (load x all AND all x load\n"
+            "  are the same pairs mirrored), and each pair is reported exactly once\n"
+            "  (a distance covers both directions). Pairs between two non-load ports\n"
+            "  are never checked.\n"
             "- Number of distances missing: how many load x disch combinations do not\n"
             "  exist in the distances CSV (direct or reverse).\n"
             "- If total pairs > found, the extra pairs are not used by the current\n"
@@ -527,10 +529,10 @@ class DistanceAnalyzerApp:
         disch_ports = ports.disch_ports
         all_ports_mode = self.all_ports_var.get()
 
-        # In all-ports mode, every port is treated as an origin and each
-        # unordered pair is checked only once (a distance row covers both
-        # directions).
-        origin_ports = disch_ports if all_ports_mode else load_ports
+        # In all-load-ports mode, every pair involving at least one load port
+        # is checked (load ports x ALL ports and ALL ports x load ports are
+        # the same pairs mirrored), and each unordered pair is checked only
+        # once (a distance row covers both directions).
 
         total_pairs = len(distance_pairs)
         total_distance_rows = self.distance_rows
@@ -540,28 +542,31 @@ class DistanceAnalyzerApp:
 
         missing = []
         found = 0
-        if all_ports_mode:
-            total_checks = max(total_disch * (total_disch - 1) // 2, 1)
-        else:
-            total_checks = max(total_load * total_disch, 1)
+        total_checks = max(total_load * total_disch, 1)
         checked = 0
+        seen_pairs = set()
 
         distance_port_ids = set()
         for load_id, disch_id in distance_pairs:
             distance_port_ids.add(load_id)
             distance_port_ids.add(disch_id)
 
-        for index, load in enumerate(origin_ports):
+        for load in load_ports:
             load_eff = _effective_port_id(load)
             load_id = _normalize_id(load["id"])
             load_name = load["port"]
-            partners = disch_ports[index + 1 :] if all_ports_mode else disch_ports
-            for disch in partners:
+            for disch in disch_ports:
                 disch_eff = _effective_port_id(disch)
                 disch_id = _normalize_id(disch["id"])
                 if load_eff == disch_eff:
                     checked += 1
                     continue
+                if all_ports_mode:
+                    pair_key = tuple(sorted((load_eff, disch_eff)))
+                    if pair_key in seen_pairs:
+                        checked += 1
+                        continue
+                    seen_pairs.add(pair_key)
                 if (load_eff, disch_eff) in distance_pairs or (
                     disch_eff,
                     load_eff,
@@ -593,7 +598,7 @@ class DistanceAnalyzerApp:
         return {
             "summary": {
                 "analysis_mode": (
-                    "ALL ports x ALL ports"
+                    "ALL LOAD PORTS x ALL ports (each pair once)"
                     if all_ports_mode
                     else "Load ports x ALL ports"
                 ),
