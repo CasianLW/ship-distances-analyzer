@@ -8,6 +8,8 @@ import tkinter.messagebox  # Ensure bundled in PyInstaller
 import tkinter.ttk  # Ensure bundled in PyInstaller
 from tkinter import messagebox, ttk
 
+from version import __version__
+
 
 def _resource_path(relative_path: str) -> str:
     base_dir = getattr(sys, "_MEIPASS", os.path.dirname(__file__))
@@ -45,8 +47,8 @@ def main() -> None:
         return
 
     root = tk.Tk()
-    root.title("Ship Port Distance Helper")
-    root.geometry("520x260")
+    root.title(f"Ship Port Distance Helper v{__version__}")
+    root.geometry("520x280")
 
     frame = ttk.Frame(root, padding=24)
     frame.pack(fill="both", expand=True)
@@ -69,6 +71,10 @@ def main() -> None:
     ).pack(pady=6)
 
     ttk.Button(frame, text="Close", command=root.destroy, width=18).pack(pady=(16, 0))
+
+    ttk.Label(frame, text=f"v{__version__}", foreground="gray").pack(
+        side="bottom", anchor="e", pady=(8, 0)
+    )
 
     root.mainloop()
 

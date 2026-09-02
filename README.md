@@ -2,6 +2,10 @@
 
 Tkinter tool to analyze missing distances between load and discharge ports.
 
+## Versioning
+
+The current version lives in `version.py` and is shown in the app (window title and bottom-right label). When releasing a new version, bump `__version__` in `version.py` and add an entry to `CHANGELOG.md`.
+
 ## Features
 
 -   Load Ports CSV and Complete Distances CSV
