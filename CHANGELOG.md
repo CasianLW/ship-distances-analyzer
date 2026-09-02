@@ -4,6 +4,15 @@ All notable changes to Ship Port Distance Helper are documented here.
 
 The version number lives in `version.py` and is shown in the app window.
 
+## [0.26] - 2026-09-02
+
+### Added
+
+-   Complex Distances Analyzer: same "Analyse ALL ports (not only load ports)" checkbox as the Simple Analyzer.
+    -   Unchecked (default): unchanged behavior — analysis between load ports and all ports.
+    -   Checked: every port is treated as an origin, and each pair of ports is analyzed exactly once (rule matching and segment lookups are symmetric).
+    -   The summary output now shows which analysis mode was used.
+
 ## [0.25] - 2026-09-02
 
 ### Added

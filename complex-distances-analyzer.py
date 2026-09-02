@@ -230,6 +230,14 @@ class ComplexDistanceAnalyzerApp:
         )
         inactive_chk.pack(side="left", padx=12)
 
+        self.all_ports_var = tk.BooleanVar(value=False)
+        all_ports_chk = ttk.Checkbutton(
+            top,
+            text="Analyse ALL ports (not only load ports)",
+            variable=self.all_ports_var,
+        )
+        all_ports_chk.pack(side="left", padx=12)
+
         files = ttk.LabelFrame(self.root, text="CSV Inputs", padding=12)
         files.pack(fill="x", padx=12, pady=(0, 12))
 
@@ -333,7 +341,10 @@ class ComplexDistanceAnalyzerApp:
             "  are not found in the segments CSV (direct or reverse).\n"
             "- Missing ARW Complete Distances: complete distances that could not be\n"
             "  generated because there is no rule for the pair or required segments\n"
-            "  are missing."
+            "  are missing.\n"
+            "- 'Analyse ALL ports' checkbox: when checked, every port is treated as an\n"
+            "  origin (not only load ports), and each pair of ports is analyzed exactly\n"
+            "  once (rules and segments are symmetric)."
         )
         messagebox.showinfo("CSV Format Info", message)
 
@@ -471,6 +482,7 @@ class ComplexDistanceAnalyzerApp:
         lines = []
         lines.append("Summary")
         lines.append("Metric\tValue")
+        lines.append(f"Analysis mode\t{summary['analysis_mode']}")
         lines.append(f"Total ports CSV rows\t{summary['total_ports_rows']}")
         lines.append(f"Total load ports\t{summary['total_load_ports']}")
         lines.append(f"Total disch ports\t{summary['total_disch_ports']}")
@@ -742,6 +754,12 @@ class ComplexDistanceAnalyzerApp:
         load_ports = ports.load_ports
         disch_ports = ports.disch_ports
         ports_by_id = ports.by_id
+        all_ports_mode = self.all_ports_var.get()
+
+        # In all-ports mode, every port is treated as an origin (not only load
+        # ports) and each unordered pair is analyzed only once, since rule
+        # matching and segment lookups are symmetric.
+        origin_ports = disch_ports if all_ports_mode else load_ports
 
         total_ports_rows = len(ports.rows)
         total_load = len(load_ports)
@@ -757,16 +775,20 @@ class ComplexDistanceAnalyzerApp:
         generated_complete = 0
         processed_effective_pairs = set()
 
-        total_pairs = max(total_load * total_disch, 1)
+        total_pairs = max(total_disch * len(origin_ports), 1)
         checked = 0
 
         for disch_port in disch_ports:
-            for load_port in load_ports:
+            for load_port in origin_ports:
                 disch_master = _resolve_master_port(disch_port, ports_by_id)
                 load_master = _resolve_master_port(load_port, ports_by_id)
                 disch_eff = _effective_port_id(disch_master)
                 load_eff = _effective_port_id(load_master)
-                pair_key = f"{disch_eff}:{load_eff}"
+                if all_ports_mode:
+                    # Unordered key: analyze each pair of ports only once.
+                    pair_key = ":".join(sorted((disch_eff, load_eff)))
+                else:
+                    pair_key = f"{disch_eff}:{load_eff}"
                 if pair_key in processed_effective_pairs:
                     checked += 1
                     if checked % 200 == 0 or checked == total_pairs:
@@ -846,6 +868,11 @@ class ComplexDistanceAnalyzerApp:
 
         return {
             "summary": {
+                "analysis_mode": (
+                    "ALL ports x ALL ports"
+                    if all_ports_mode
+                    else "Load ports x ALL ports"
+                ),
                 "total_ports_rows": total_ports_rows,
                 "total_load_ports": total_load,
                 "total_disch_ports": total_disch,
