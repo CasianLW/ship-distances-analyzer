@@ -23,7 +23,6 @@ def _launch_tool(root: tk.Tk, tool_key: str) -> None:
 
 def _run_tool(tool_key: str) -> None:
     script_map = {
-        "simple": "simple-distances-analyzer.py",
         "complex": "complex-distances-analyzer.py",
     }
     script_name = script_map.get(tool_key)
@@ -48,20 +47,13 @@ def main() -> None:
 
     root = tk.Tk()
     root.title(f"Ship Port Distance Helper v{__version__}")
-    root.geometry("520x280")
+    root.geometry("520x220")
 
     frame = ttk.Frame(root, padding=24)
     frame.pack(fill="both", expand=True)
 
     title = ttk.Label(frame, text="Choose a tool", font=("Helvetica", 14))
     title.pack(pady=(0, 12))
-
-    ttk.Button(
-        frame,
-        text="Simple Distances Analyzer: load to disch",
-        command=lambda: _launch_tool(root, "simple"),
-        width=46,
-    ).pack(pady=6)
 
     ttk.Button(
         frame,
