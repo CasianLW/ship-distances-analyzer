@@ -1,3 +1,4 @@
+import csv
 import os
 import tkinter as tk
 import tkinter.filedialog  # Ensures PyInstaller bundles submodules
@@ -11,19 +12,77 @@ except Exception:
     DND_FILES = None
     TkinterDnD = None
 
+SEGMENT_COLUMNS = [
+    "id",
+    "load_port_id",
+    "disch_port_id",
+    "total_distance",
+    "total_seca_distance",
+    "waypoint_data",
+    "updated_at",
+    "by_panama_canal_rp",
+    "by_gibraltar_strait_rp",
+    "by_cape_good_hope_rp",
+    "by_magellan_strait_rp",
+    "by_cape_horn_rp",
+    "by_singapore_strait_rp",
+    "by_torres_strait_rp",
+    "by_vitiaz_strait_rp",
+    "by_kiel_canal_rp",
+    "by_skaw_area_rp",
+    "by_suez_canal_rp",
+    "by_gulf_of_aden_rp",
+    "by_sunda_strait_rp",
+    "by_bosporus_strait_rp",
+    "by_malacca_strait_rp",
+]
+
+EXCEL_DISTANCES_COLUMNS = [
+    "0",
+    "LOAD PORT",
+    "LOAD PORT UNLOCODE",
+    "DISH PORT",
+    "DISCH PORT UNLOCODE",
+    "LOAD ZONE",
+    "DISH ZONE",
+    "TOTAL DISTANCE",
+    "TOTAL SECA DISTANCE",
+    "waypointData",
+    "UPDATE",
+    "load_port_id",
+    "disch_port_id",
+]
+
 
 class DistancesDedupeWaypointsApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Distances: remove dupes & assign waypoints")
-        self.root.geometry("920x640")
+        self.root.geometry("960x640")
 
-        self.distances_csv_path = None
+        self.segments_csv_path = None
+        self.excel_distances_csv_path = None
+        self.segments_rows = 0
+        self.excel_distances_rows = 0
         self.dnd_available = False
         self.dnd_provider = "none"
 
         self._build_ui()
         self._setup_dnd()
+
+    @staticmethod
+    def _count_csv_rows(path: str) -> int:
+        """Count data rows (header excluded). Handles comma/tab/semicolon CSVs."""
+        with open(path, newline="", encoding="utf-8-sig") as file:
+            sample = file.read(8192)
+            file.seek(0)
+            try:
+                dialect = csv.Sniffer().sniff(sample, delimiters=",\t;")
+            except csv.Error:
+                dialect = csv.excel
+            reader = csv.reader(file, dialect)
+            next(reader, None)  # skip header
+            return sum(1 for _ in reader)
 
     def _setup_dnd(self) -> None:
         if TkinterDnD is not None:
@@ -79,44 +138,64 @@ class DistancesDedupeWaypointsApp:
         top = ttk.Frame(self.root, padding=12)
         top.pack(fill="x")
 
-        ttk.Button(top, text="Info", command=self.show_info).pack(side="left")
+        ttk.Button(top, text="Info (CSV Format)", command=self.show_info).pack(
+            side="left"
+        )
 
         files = ttk.LabelFrame(self.root, text="CSV Inputs", padding=12)
         files.pack(fill="x", padx=12, pady=(0, 12))
 
-        self.distances_status = tk.StringVar(value="Distances CSV: not loaded")
+        self.segments_status = tk.StringVar(
+            value="Distances ARW (segments) CSV: not loaded"
+        )
+        self.excel_status = tk.StringVar(value="Excel Distances CSV: not loaded")
 
-        distances_row = ttk.Frame(files)
-        distances_row.pack(fill="x", pady=4)
+        segments_row = ttk.Frame(files)
+        segments_row.pack(fill="x", pady=4)
         ttk.Button(
-            distances_row,
-            text="Add Distances CSV",
-            command=self.load_distances_csv,
+            segments_row,
+            text="Add Distances ARW (segments) CSV",
+            command=self.load_segments_csv,
         ).pack(side="left")
-        self._build_drop_square(distances_row, self._load_distances_from_path).pack(
+        self._build_drop_square(segments_row, self._load_segments_from_path).pack(
             side="left", padx=6
         )
         ttk.Button(
-            distances_row,
-            text="Remove Distances CSV",
-            command=self.remove_distances_csv,
+            segments_row,
+            text="Remove Distances ARW CSV",
+            command=self.remove_segments_csv,
         ).pack(side="left", padx=6)
-        ttk.Label(distances_row, textvariable=self.distances_status).pack(
+        ttk.Label(segments_row, textvariable=self.segments_status).pack(
             side="left", padx=12
         )
+
+        excel_row = ttk.Frame(files)
+        excel_row.pack(fill="x", pady=4)
+        ttk.Button(
+            excel_row,
+            text="Add Excel Distances CSV",
+            command=self.load_excel_distances_csv,
+        ).pack(side="left")
+        self._build_drop_square(excel_row, self._load_excel_distances_from_path).pack(
+            side="left", padx=6
+        )
+        ttk.Button(
+            excel_row,
+            text="Remove Excel Distances CSV",
+            command=self.remove_excel_distances_csv,
+        ).pack(side="left", padx=6)
+        ttk.Label(excel_row, textvariable=self.excel_status).pack(side="left", padx=12)
 
         actions = ttk.Frame(self.root, padding=(12, 0, 12, 12))
         actions.pack(fill="x")
         self.start_btn = ttk.Button(
             actions,
-            text="Remove dupes & assign waypoints",
+            text="RUN Distances remove dupes & assign wayponts",
             command=self.start_processing,
         )
         self.start_btn.pack(side="left")
 
-        self.reset_btn = ttk.Button(
-            actions, text="Reset", command=self.reset_output
-        )
+        self.reset_btn = ttk.Button(actions, text="Reset", command=self.reset_output)
         self.reset_btn.pack(side="left", padx=8)
 
         result_frame = ttk.LabelFrame(self.root, text="Output", padding=12)
@@ -126,57 +205,104 @@ class DistancesDedupeWaypointsApp:
         self.output_text.pack(fill="both", expand=True)
         self.output_text.insert(
             "1.0",
-            "This page is ready.\n\n"
-            "Load a Distances CSV, then use the action button.\n"
+            "Load both CSVs, then press RUN.\n"
             "Processing logic will be added next.",
         )
         self.output_text.configure(state="disabled")
 
     def show_info(self) -> None:
+        message = (
+            "Distances ARW (segments) CSV columns (exact header order):\n"
+            + "\t".join(SEGMENT_COLUMNS)
+            + "\n\nExcel Distances CSV expected key columns:\n"
+            + "\t".join(EXCEL_DISTANCES_COLUMNS)
+            + "\n\nThis tool will later:\n"
+            "- Remove duplicate distance rows\n"
+            "- Assign waypoints where needed"
+        )
         messagebox.showinfo(
             "Distances: remove dupes & assign waypoints",
-            "This tool will:\n"
-            "- Remove duplicate distance rows\n"
-            "- Assign waypoints where needed\n\n"
-            "CSV format and processing rules will be defined as the feature is built.",
+            message,
         )
 
-    def load_distances_csv(self) -> None:
+    def load_segments_csv(self) -> None:
         path = filedialog.askopenfilename(
-            title="Select Distances CSV",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            title="Select Distances ARW (segments) CSV",
+            filetypes=[("CSV Files", "*.csv"), ("All files", "*.*")],
         )
         if path:
-            self._load_distances_from_path(path)
+            self._load_segments_from_path(path)
 
-    def _load_distances_from_path(self, path: str) -> None:
+    def _load_segments_from_path(self, path: str) -> None:
         if not path or not os.path.isfile(path):
             messagebox.showerror("Invalid file", "Please select a valid CSV file.")
             return
-        self.distances_csv_path = path
-        self.distances_status.set(f"Distances CSV: {os.path.basename(path)}")
+        try:
+            row_count = self._count_csv_rows(path)
+        except Exception as exc:
+            messagebox.showerror("Distances ARW CSV Error", str(exc))
+            return
+        self.segments_csv_path = path
+        self.segments_rows = row_count
+        self.segments_status.set(
+            f"Distances ARW (segments) CSV: loaded ({row_count} rows)"
+        )
 
-    def remove_distances_csv(self) -> None:
-        self.distances_csv_path = None
-        self.distances_status.set("Distances CSV: not loaded")
+    def remove_segments_csv(self) -> None:
+        self.segments_csv_path = None
+        self.segments_rows = 0
+        self.segments_status.set("Distances ARW (segments) CSV: not loaded")
+
+    def load_excel_distances_csv(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Select Excel Distances CSV",
+            filetypes=[("CSV Files", "*.csv"), ("All files", "*.*")],
+        )
+        if path:
+            self._load_excel_distances_from_path(path)
+
+    def _load_excel_distances_from_path(self, path: str) -> None:
+        if not path or not os.path.isfile(path):
+            messagebox.showerror("Invalid file", "Please select a valid CSV file.")
+            return
+        try:
+            row_count = self._count_csv_rows(path)
+        except Exception as exc:
+            messagebox.showerror("Excel Distances CSV Error", str(exc))
+            return
+        self.excel_distances_csv_path = path
+        self.excel_distances_rows = row_count
+        self.excel_status.set(f"Excel Distances CSV: loaded ({row_count} rows)")
+
+    def remove_excel_distances_csv(self) -> None:
+        self.excel_distances_csv_path = None
+        self.excel_distances_rows = 0
+        self.excel_status.set("Excel Distances CSV: not loaded")
 
     def start_processing(self) -> None:
-        if not self.distances_csv_path:
+        missing = []
+        if not self.segments_csv_path:
+            missing.append("Distances ARW (segments) CSV")
+        if not self.excel_distances_csv_path:
+            missing.append("Excel Distances CSV")
+        if missing:
             messagebox.showwarning(
                 "Missing input",
-                "Please load a Distances CSV first.",
+                "Please load:\n- " + "\n- ".join(missing),
             )
             return
+
+        print("button pressed")
         self._set_output(
-            f"Loaded: {self.distances_csv_path}\n\n"
-            "Processing is not implemented yet.\n"
-            "Next step: define dedupe rules and waypoint assignment."
+            "button pressed\n\n"
+            f"Distances ARW: {self.segments_csv_path}\n"
+            f"Excel Distances: {self.excel_distances_csv_path}\n\n"
+            "Processing logic will be added next."
         )
 
     def reset_output(self) -> None:
         self._set_output(
-            "This page is ready.\n\n"
-            "Load a Distances CSV, then use the action button.\n"
+            "Load both CSVs, then press RUN.\n"
             "Processing logic will be added next."
         )
 
