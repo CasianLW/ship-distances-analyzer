@@ -41,7 +41,7 @@ pip install pyinstaller
 
 ```bash
 # Windows (PowerShell / CMD - use ; as separator)
-pyinstaller --noconsole --onefile --icon danalyser-icon.png --add-data "complex-distances-analyzer.py;." --hidden-import tkinter.filedialog --hidden-import tkinter.messagebox --hidden-import tkinter.ttk --collect-submodules tkinter distances-analyzer-gui.py
+pyinstaller --noconsole --onefile --icon danalyser-icon.png --add-data "complex-distances-analyzer.py;." --add-data "distances-dedupe-waypoints.py;." --hidden-import tkinter.filedialog --hidden-import tkinter.messagebox --hidden-import tkinter.ttk --collect-submodules tkinter distances-analyzer-gui.py
 ```
 
 3. The EXE will be at:
@@ -57,7 +57,7 @@ dist/main.exe
 
 ```bash
 # macOS (zsh - use : as separator)
-pyinstaller --windowed --onefile --icon danalyser-icon.png --add-data "complex-distances-analyzer.py:." --hidden-import tkinter.filedialog --hidden-import tkinter.messagebox --hidden-import tkinter.ttk --collect-submodules tkinter distances-analyzer-gui.py
+pyinstaller --windowed --onefile --icon danalyser-icon.png --add-data "complex-distances-analyzer.py:." --add-data "distances-dedupe-waypoints.py:." --hidden-import tkinter.filedialog --hidden-import tkinter.messagebox --hidden-import tkinter.ttk --collect-submodules tkinter distances-analyzer-gui.py
 ```
 
 ### Drag & drop support
