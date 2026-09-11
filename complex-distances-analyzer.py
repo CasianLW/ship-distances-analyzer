@@ -230,7 +230,7 @@ class ComplexDistanceAnalyzerApp:
         )
         inactive_chk.pack(side="left", padx=12)
 
-        self.all_ports_var = tk.BooleanVar(value=False)
+        self.all_ports_var = tk.BooleanVar(value=True)
         all_ports_chk = ttk.Checkbutton(
             top,
             text="All load ports x ALL ports (each pair once)",
@@ -606,10 +606,13 @@ class ComplexDistanceAnalyzerApp:
         return normalized
 
     def _read_segments_csv(self, path: str) -> tuple[dict, int]:
+        required_columns = [
+            col for col in SEGMENT_COLUMNS if col not in {"id", "by_malacca_strait_rp"}
+        ]
         with open(path, newline="", encoding="utf-8-sig") as file:
             reader = csv.DictReader(file)
             self._validate_headers(
-                reader.fieldnames, SEGMENT_COLUMNS, "Distances ARW (segments) CSV"
+                reader.fieldnames, required_columns, "Distances ARW (segments) CSV"
             )
             segments = {}
             row_count = 0
@@ -840,7 +843,7 @@ class ComplexDistanceAnalyzerApp:
                                 }
                             )
                             for from_id, to_id in missing_segments:
-                                key = f"{from_id}:{to_id}"
+                                key = ":".join(sorted((from_id, to_id)))
                                 if key in missing_segments_set:
                                     continue
                                 missing_segments_set.add(key)
