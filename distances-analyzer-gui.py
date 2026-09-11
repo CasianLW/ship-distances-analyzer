@@ -65,7 +65,7 @@ def main() -> None:
 
     ttk.Button(
         frame,
-        text="Distances: remove dupes & assign waypoints",
+        text="Distances: remove dupes",
         command=lambda: _launch_tool(root, "dedupe_waypoints"),
         width=46,
     ).pack(pady=6)

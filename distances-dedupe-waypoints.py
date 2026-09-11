@@ -38,19 +38,26 @@ SEGMENT_COLUMNS = [
 ]
 
 EXCEL_DISTANCES_COLUMNS = [
-    "0",
-    "LOAD PORT",
-    "LOAD PORT UNLOCODE",
-    "DISH PORT",
-    "DISCH PORT UNLOCODE",
-    "LOAD ZONE",
-    "DISH ZONE",
-    "TOTAL DISTANCE",
-    "TOTAL SECA DISTANCE",
-    "waypointData",
-    "UPDATE",
     "load_port_id",
     "disch_port_id",
+    "total_distance",
+    "total_seca_distance",
+    "waypoint_data",
+    "updated_at",
+    "by_panama_canal_rp",
+    "by_gibraltar_strait_rp",
+    "by_cape_good_hope_rp",
+    "by_magellan_strait_rp",
+    "by_cape_horn_rp",
+    "by_singapore_strait_rp",
+    "by_torres_strait_rp",
+    "by_vitiaz_strait_rp",
+    "by_kiel_canal_rp",
+    "by_skaw_area_rp",
+    "by_suez_canal_rp",
+    "by_gulf_of_aden_rp",
+    "by_sunda_strait_rp",
+    "by_bosporus_strait_rp",
 ]
 
 REQUIRED_SEGMENT_FIELDS = (
@@ -86,11 +93,29 @@ def _normalize_distance(value: object) -> str:
         return raw
 
 
+def _normalize_header(value: object) -> str:
+    return " ".join(str(value or "").replace("\n", " ").replace("\r", " ").split()).strip().lower()
+
+
+def _match_key(
+    load_port_id: object,
+    disch_port_id: object,
+    total_distance: object,
+    total_seca_distance: object,
+) -> tuple[str, str, str, str]:
+    return (
+        _normalize_id(load_port_id),
+        _normalize_id(disch_port_id),
+        _normalize_distance(total_distance),
+        _normalize_distance(total_seca_distance),
+    )
+
+
 class DistancesDedupeWaypointsApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Distances: remove dupes & assign waypoints")
-        self.root.geometry("960x700")
+        self.root.title("Distances: remove dupes")
+        self.root.geometry("960x640")
 
         self.segments_csv_path = None
         self.excel_distances_csv_path = None
@@ -109,18 +134,45 @@ class DistancesDedupeWaypointsApp:
         self._setup_dnd()
 
     @staticmethod
+    def _detect_csv_dialect(sample: str):
+        first_line = sample.splitlines()[0] if sample else ""
+        if first_line.count("\t") >= 2:
+            return csv.excel_tab
+        try:
+            return csv.Sniffer().sniff(sample, delimiters=",\t;")
+        except csv.Error:
+            return csv.excel
+
+    @staticmethod
     def _count_csv_rows(path: str) -> int:
         """Count data rows (header excluded). Handles comma/tab/semicolon CSVs."""
         with open(path, newline="", encoding="utf-8-sig") as file:
             sample = file.read(8192)
             file.seek(0)
-            try:
-                dialect = csv.Sniffer().sniff(sample, delimiters=",\t;")
-            except csv.Error:
-                dialect = csv.excel
+            dialect = DistancesDedupeWaypointsApp._detect_csv_dialect(sample)
             reader = csv.reader(file, dialect)
             next(reader, None)  # skip header
             return sum(1 for _ in reader)
+
+    @staticmethod
+    def _validate_excel_headers(path: str) -> None:
+        with open(path, newline="", encoding="utf-8-sig") as file:
+            sample = file.read(8192)
+            file.seek(0)
+            dialect = DistancesDedupeWaypointsApp._detect_csv_dialect(sample)
+            reader = csv.reader(file, dialect)
+            headers = next(reader, None)
+        if not headers:
+            raise ValueError("Excel Distances CSV has no headers.")
+        actual = {_normalize_header(h) for h in headers if h is not None}
+        missing = [
+            col for col in EXCEL_DISTANCES_COLUMNS if col not in actual
+        ]
+        if missing:
+            raise ValueError(
+                "Excel Distances CSV is missing required columns:\n"
+                + ", ".join(missing)
+            )
 
     def _setup_dnd(self) -> None:
         if TkinterDnD is not None:
@@ -228,7 +280,7 @@ class DistancesDedupeWaypointsApp:
         actions.pack(fill="x")
         self.start_btn = ttk.Button(
             actions,
-            text="RUN Distances remove dupes & assign wayponts",
+            text="RUN Distances remove dupes",
             command=self.start_processing,
         )
         self.start_btn.pack(side="left")
@@ -243,9 +295,8 @@ class DistancesDedupeWaypointsApp:
         self.output_text.pack(fill="both", expand=True)
         self.output_text.insert(
             "1.0",
-            "Load both CSVs, then press RUN.\n"
-            "A duplicate is only a row where ALL of these match at once:\n"
-            "load_port_id AND disch_port_id AND total_distance AND total_seca_distance.",
+            "Load Distances ARW and Excel Distances CSVs, then press RUN.\n"
+            "This tool removes ARW duplicates.",
         )
         self.output_text.configure(state="disabled")
 
@@ -270,9 +321,9 @@ class DistancesDedupeWaypointsApp:
 
     def show_info(self) -> None:
         message = (
-            "Distances ARW (segments) CSV columns (exact header order):\n"
+            "Distances ARW (segments) CSV columns:\n"
             + "\t".join(SEGMENT_COLUMNS)
-            + "\n\nExcel Distances CSV expected key columns:\n"
+            + "\n\nExcel Distances CSV columns:\n"
             + "\t".join(EXCEL_DISTANCES_COLUMNS)
             + "\n\nDuplicate rule (on Distances ARW):\n"
             "A row is a duplicate only if ALL of these are true at the same time:\n"
@@ -284,10 +335,7 @@ class DistancesDedupeWaypointsApp:
             "First occurrence is kept in the clean CSV;\n"
             "later full matches go to the duplicates CSV."
         )
-        messagebox.showinfo(
-            "Distances: remove dupes & assign waypoints",
-            message,
-        )
+        messagebox.showinfo("Distances: remove dupes", message)
 
     def load_segments_csv(self) -> None:
         path = filedialog.askopenfilename(
@@ -332,6 +380,7 @@ class DistancesDedupeWaypointsApp:
             messagebox.showerror("Invalid file", "Please select a valid CSV file.")
             return
         try:
+            self._validate_excel_headers(path)
             row_count = self._count_csv_rows(path)
         except Exception as exc:
             messagebox.showerror("Excel Distances CSV Error", str(exc))
@@ -374,21 +423,17 @@ class DistancesDedupeWaypointsApp:
         self.result_ready = True
         self._set_download_buttons_state(enabled=True)
 
-        input_rows = self.segments_rows
-        clean_count = len(clean_rows)
-        dupe_count = len(duplicate_rows)
-
         self._set_output(
-            "Effacer les doublons — résultat\n\n"
-            f"Distances ARW input rows:\t{input_rows}\n"
-            f"Clean rows kept:\t{clean_count}\n"
-            f"Duplicates removed:\t{dupe_count}\n\n"
+            "Résultat\n\n"
+            f"Distances ARW input rows:\t{self.segments_rows}\n"
+            f"Excel Distances rows:\t{self.excel_distances_rows}\n"
+            f"Clean rows kept:\t{len(clean_rows)}\n"
+            f"Duplicates removed:\t{len(duplicate_rows)}\n\n"
             "Duplicate rule (toutes les conditions en même temps, ET et non OU):\n"
             "- Même load_port_id\n"
             "- ET même disch_port_id\n"
             "- ET même total_distance\n"
             "- ET même total_seca_distance\n"
-            "Si l'une de ces valeurs diffère, la ligne n'est pas un doublon.\n"
             "Première occurrence conservée; suivantes mises dans le CSV doublons.\n\n"
             "Use the download buttons below to export:\n"
             "- Clean Distances ARW CSV (sans doublons)\n"
@@ -402,9 +447,8 @@ class DistancesDedupeWaypointsApp:
         self.result_ready = False
         self._set_download_buttons_state(enabled=False)
         self._set_output(
-            "Load both CSVs, then press RUN.\n"
-            "A duplicate is only a row where ALL of these match at once:\n"
-            "load_port_id AND disch_port_id AND total_distance AND total_seca_distance."
+            "Load Distances ARW and Excel Distances CSVs, then press RUN.\n"
+            "This tool removes ARW duplicates."
         )
 
     def _set_download_buttons_state(self, enabled: bool) -> None:
@@ -422,7 +466,10 @@ class DistancesDedupeWaypointsApp:
         self, path: str
     ) -> tuple[list[str], list[dict], list[dict]]:
         with open(path, newline="", encoding="utf-8-sig") as file:
-            reader = csv.DictReader(file)
+            sample = file.read(8192)
+            file.seek(0)
+            dialect = DistancesDedupeWaypointsApp._detect_csv_dialect(sample)
+            reader = csv.DictReader(file, dialect=dialect)
             if not reader.fieldnames:
                 raise ValueError("Distances ARW CSV has no headers.")
 
@@ -440,11 +487,11 @@ class DistancesDedupeWaypointsApp:
 
             for row in reader:
                 # Duplicate only when ALL four values match together (AND, not OR).
-                key = (
-                    _normalize_id(row.get("load_port_id")),
-                    _normalize_id(row.get("disch_port_id")),
-                    _normalize_distance(row.get("total_distance")),
-                    _normalize_distance(row.get("total_seca_distance")),
+                key = _match_key(
+                    row.get("load_port_id"),
+                    row.get("disch_port_id"),
+                    row.get("total_distance"),
+                    row.get("total_seca_distance"),
                 )
                 if key in seen:
                     duplicate_rows.append(row)
