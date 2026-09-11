@@ -53,17 +53,55 @@ EXCEL_DISTANCES_COLUMNS = [
     "disch_port_id",
 ]
 
+REQUIRED_SEGMENT_FIELDS = (
+    "load_port_id",
+    "disch_port_id",
+    "total_distance",
+    "total_seca_distance",
+)
+
+
+def _normalize_id(value: object) -> str:
+    if value is None:
+        return ""
+    raw = str(value).strip()
+    if raw == "":
+        return ""
+    try:
+        num = float(raw)
+        if num.is_integer():
+            return str(int(num))
+        return str(num)
+    except ValueError:
+        return raw
+
+
+def _normalize_distance(value: object) -> str:
+    raw = str(value or "").strip()
+    if raw == "":
+        return ""
+    try:
+        return f"{float(raw):.10f}".rstrip("0").rstrip(".")
+    except ValueError:
+        return raw
+
 
 class DistancesDedupeWaypointsApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Distances: remove dupes & assign waypoints")
-        self.root.geometry("960x640")
+        self.root.geometry("960x700")
 
         self.segments_csv_path = None
         self.excel_distances_csv_path = None
         self.segments_rows = 0
         self.excel_distances_rows = 0
+
+        self.fieldnames: list[str] | None = None
+        self.clean_rows: list[dict] = []
+        self.duplicate_rows: list[dict] = []
+        self.result_ready = False
+
         self.dnd_available = False
         self.dnd_provider = "none"
 
@@ -201,14 +239,34 @@ class DistancesDedupeWaypointsApp:
         result_frame = ttk.LabelFrame(self.root, text="Output", padding=12)
         result_frame.pack(fill="both", expand=True, padx=12, pady=(0, 12))
 
-        self.output_text = tk.Text(result_frame, height=18, wrap="word")
+        self.output_text = tk.Text(result_frame, height=16, wrap="word")
         self.output_text.pack(fill="both", expand=True)
         self.output_text.insert(
             "1.0",
             "Load both CSVs, then press RUN.\n"
-            "Processing logic will be added next.",
+            "A duplicate is only a row where ALL of these match at once:\n"
+            "load_port_id AND disch_port_id AND total_distance AND total_seca_distance.",
         )
         self.output_text.configure(state="disabled")
+
+        btns = ttk.Frame(result_frame)
+        btns.pack(fill="x", pady=(8, 0))
+
+        self.download_clean_btn = ttk.Button(
+            btns,
+            text="Download clean Distances ARW CSV",
+            command=self.download_clean_csv,
+        )
+        self.download_clean_btn.pack(side="left")
+
+        self.download_dupes_btn = ttk.Button(
+            btns,
+            text="Download duplicates CSV",
+            command=self.download_duplicates_csv,
+        )
+        self.download_dupes_btn.pack(side="left", padx=8)
+
+        self._set_download_buttons_state(enabled=False)
 
     def show_info(self) -> None:
         message = (
@@ -216,9 +274,15 @@ class DistancesDedupeWaypointsApp:
             + "\t".join(SEGMENT_COLUMNS)
             + "\n\nExcel Distances CSV expected key columns:\n"
             + "\t".join(EXCEL_DISTANCES_COLUMNS)
-            + "\n\nThis tool will later:\n"
-            "- Remove duplicate distance rows\n"
-            "- Assign waypoints where needed"
+            + "\n\nDuplicate rule (on Distances ARW):\n"
+            "A row is a duplicate only if ALL of these are true at the same time:\n"
+            "- Same load_port_id\n"
+            "- AND same disch_port_id\n"
+            "- AND same total_distance\n"
+            "- AND same total_seca_distance\n"
+            "If any one of these differs, the row is kept.\n"
+            "First occurrence is kept in the clean CSV;\n"
+            "later full matches go to the duplicates CSV."
         )
         messagebox.showinfo(
             "Distances: remove dupes & assign waypoints",
@@ -247,11 +311,13 @@ class DistancesDedupeWaypointsApp:
         self.segments_status.set(
             f"Distances ARW (segments) CSV: loaded ({row_count} rows)"
         )
+        self.reset_output()
 
     def remove_segments_csv(self) -> None:
         self.segments_csv_path = None
         self.segments_rows = 0
         self.segments_status.set("Distances ARW (segments) CSV: not loaded")
+        self.reset_output()
 
     def load_excel_distances_csv(self) -> None:
         path = filedialog.askopenfilename(
@@ -273,11 +339,13 @@ class DistancesDedupeWaypointsApp:
         self.excel_distances_csv_path = path
         self.excel_distances_rows = row_count
         self.excel_status.set(f"Excel Distances CSV: loaded ({row_count} rows)")
+        self.reset_output()
 
     def remove_excel_distances_csv(self) -> None:
         self.excel_distances_csv_path = None
         self.excel_distances_rows = 0
         self.excel_status.set("Excel Distances CSV: not loaded")
+        self.reset_output()
 
     def start_processing(self) -> None:
         missing = []
@@ -292,25 +360,134 @@ class DistancesDedupeWaypointsApp:
             )
             return
 
-        print("button pressed")
+        try:
+            fieldnames, clean_rows, duplicate_rows = self._dedupe_segments_csv(
+                self.segments_csv_path
+            )
+        except Exception as exc:
+            messagebox.showerror("Processing Error", str(exc))
+            return
+
+        self.fieldnames = fieldnames
+        self.clean_rows = clean_rows
+        self.duplicate_rows = duplicate_rows
+        self.result_ready = True
+        self._set_download_buttons_state(enabled=True)
+
+        input_rows = self.segments_rows
+        clean_count = len(clean_rows)
+        dupe_count = len(duplicate_rows)
+
         self._set_output(
-            "button pressed\n\n"
-            f"Distances ARW: {self.segments_csv_path}\n"
-            f"Excel Distances: {self.excel_distances_csv_path}\n\n"
-            "Processing logic will be added next."
+            "Effacer les doublons — résultat\n\n"
+            f"Distances ARW input rows:\t{input_rows}\n"
+            f"Clean rows kept:\t{clean_count}\n"
+            f"Duplicates removed:\t{dupe_count}\n\n"
+            "Duplicate rule (toutes les conditions en même temps, ET et non OU):\n"
+            "- Même load_port_id\n"
+            "- ET même disch_port_id\n"
+            "- ET même total_distance\n"
+            "- ET même total_seca_distance\n"
+            "Si l'une de ces valeurs diffère, la ligne n'est pas un doublon.\n"
+            "Première occurrence conservée; suivantes mises dans le CSV doublons.\n\n"
+            "Use the download buttons below to export:\n"
+            "- Clean Distances ARW CSV (sans doublons)\n"
+            "- Duplicates CSV (lignes effacées)"
         )
 
     def reset_output(self) -> None:
+        self.fieldnames = None
+        self.clean_rows = []
+        self.duplicate_rows = []
+        self.result_ready = False
+        self._set_download_buttons_state(enabled=False)
         self._set_output(
             "Load both CSVs, then press RUN.\n"
-            "Processing logic will be added next."
+            "A duplicate is only a row where ALL of these match at once:\n"
+            "load_port_id AND disch_port_id AND total_distance AND total_seca_distance."
         )
+
+    def _set_download_buttons_state(self, enabled: bool) -> None:
+        state = "normal" if enabled else "disabled"
+        self.download_clean_btn.config(state=state)
+        self.download_dupes_btn.config(state=state)
 
     def _set_output(self, text: str) -> None:
         self.output_text.configure(state="normal")
         self.output_text.delete("1.0", "end")
         self.output_text.insert("1.0", text)
         self.output_text.configure(state="disabled")
+
+    def _dedupe_segments_csv(
+        self, path: str
+    ) -> tuple[list[str], list[dict], list[dict]]:
+        with open(path, newline="", encoding="utf-8-sig") as file:
+            reader = csv.DictReader(file)
+            if not reader.fieldnames:
+                raise ValueError("Distances ARW CSV has no headers.")
+
+            fieldnames = list(reader.fieldnames)
+            missing = [c for c in REQUIRED_SEGMENT_FIELDS if c not in fieldnames]
+            if missing:
+                raise ValueError(
+                    "Distances ARW CSV is missing required columns:\n"
+                    + ", ".join(missing)
+                )
+
+            seen: set[tuple[str, str, str, str]] = set()
+            clean_rows: list[dict] = []
+            duplicate_rows: list[dict] = []
+
+            for row in reader:
+                # Duplicate only when ALL four values match together (AND, not OR).
+                key = (
+                    _normalize_id(row.get("load_port_id")),
+                    _normalize_id(row.get("disch_port_id")),
+                    _normalize_distance(row.get("total_distance")),
+                    _normalize_distance(row.get("total_seca_distance")),
+                )
+                if key in seen:
+                    duplicate_rows.append(row)
+                else:
+                    seen.add(key)
+                    clean_rows.append(row)
+
+        return fieldnames, clean_rows, duplicate_rows
+
+    def download_clean_csv(self) -> None:
+        if not self.result_ready or self.fieldnames is None:
+            return
+        path = filedialog.asksaveasfilename(
+            title="Save clean Distances ARW CSV",
+            defaultextension=".csv",
+            initialfile="distances-arw-clean.csv",
+            filetypes=[("CSV Files", "*.csv")],
+        )
+        if not path:
+            return
+        self._write_csv(path, self.fieldnames, self.clean_rows)
+        messagebox.showinfo("Saved", f"Clean CSV saved:\n{path}")
+
+    def download_duplicates_csv(self) -> None:
+        if not self.result_ready or self.fieldnames is None:
+            return
+        path = filedialog.asksaveasfilename(
+            title="Save duplicates CSV",
+            defaultextension=".csv",
+            initialfile="distances-arw-duplicates.csv",
+            filetypes=[("CSV Files", "*.csv")],
+        )
+        if not path:
+            return
+        self._write_csv(path, self.fieldnames, self.duplicate_rows)
+        messagebox.showinfo("Saved", f"Duplicates CSV saved:\n{path}")
+
+    @staticmethod
+    def _write_csv(path: str, fieldnames: list[str], rows: list[dict]) -> None:
+        with open(path, "w", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(rows)
 
 
 def main() -> None:
