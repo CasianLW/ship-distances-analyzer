@@ -360,6 +360,13 @@ class DistancesDedupeWaypointsApp:
             variable=self.all_ports_var,
         ).pack(side="left", padx=12)
 
+        self.remove_a_aa_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            top,
+            text="Remove A & AA ports for clean",
+            variable=self.remove_a_aa_var,
+        ).pack(side="left", padx=12)
+
         files = ttk.LabelFrame(self.root, text="CSV Inputs", padding=12)
         files.pack(fill="x", padx=12, pady=(0, 12))
 
@@ -492,6 +499,8 @@ class DistancesDedupeWaypointsApp:
             + "\n\nPipeline:\n"
             "- Dedupe Excel Distances (same unordered load/disch pair, including "
             "A→B and B→A, + same total + same SECA).\n"
+            "- If 'Remove A & AA ports for clean' is on, any Excel row whose load or "
+            "disch port has port_type A or AA is removed from clean like a duplicate.\n"
             "- Simulate Complex Analyzer without distances as input:\n"
             "  required route legs from Ports + Rules.\n"
             "- Look up those legs in the cleaned Excel Distances (direct or reverse).\n"
@@ -636,6 +645,11 @@ class DistancesDedupeWaypointsApp:
                 self.excel_distances_csv_path
             )
             ports = self._read_ports_csv(self.ports_csv_path)
+            a_aa_removed = 0
+            if self.remove_a_aa_var.get():
+                clean_rows, duplicate_rows, a_aa_removed = self._strip_a_aa_rows(
+                    clean_rows, duplicate_rows, ports
+                )
             rules = self._read_rules_csv(self.rules_csv_path)
             excel_by_pair = self._index_distance_rows(clean_rows)
             required, no_rule_pairs, missing_complete = self._collect_required_legs(
@@ -658,6 +672,8 @@ class DistancesDedupeWaypointsApp:
                 "no_rule_pairs": no_rule_pairs,
                 "missing_complete": missing_complete,
                 "all_ports_mode": self.all_ports_var.get(),
+                "remove_a_aa": self.remove_a_aa_var.get(),
+                "a_aa_removed": a_aa_removed,
             }
         except Exception as exc:
             self.root.after(0, self._on_processing_error, str(exc))
@@ -694,7 +710,10 @@ class DistancesDedupeWaypointsApp:
             f"Analysis mode:\t{mode}\n"
             f"Excel Distances input rows:\t{self.excel_distances_rows}\n"
             f"Clean Excel rows kept:\t{len(self.clean_rows)}\n"
-            f"Duplicates removed:\t{len(self.duplicate_rows)}\n"
+            f"Duplicates removed:\t"
+            f"{len(self.duplicate_rows) - payload['a_aa_removed']}\n"
+            f"A/AA port rows removed from clean:\t"
+            f"{payload['a_aa_removed'] if payload['remove_a_aa'] else 'off'}\n"
             f"Required legs (rules, no input distances):\t{payload['required_legs']}\n"
             f"Useful Excel distances found:\t{len(self.useful_excel_rows)}\n"
             f"Unused Excel distances:\t{len(self.unused_excel_rows)}\n"
@@ -703,7 +722,7 @@ class DistancesDedupeWaypointsApp:
             f"Port pairs with no rule:\t{payload['no_rule_pairs']}\n\n"
             "Downloads:\n"
             "- Clean Excel Distances CSV (sans doublons)\n"
-            "- Duplicates CSV\n"
+            "- Duplicates CSV (true dupes + A/AA rows if checkbox on)\n"
             "- Useful Excel distances (legs required by rules, from clean)\n"
             "- Unused Excel distances (clean rows not needed by rules)\n"
             "- Unused (human) (same pairs with port names)\n"
@@ -774,6 +793,32 @@ class DistancesDedupeWaypointsApp:
                     seen.add(key)
                     clean_rows.append(row)
         return fieldnames, clean_rows, duplicate_rows
+
+    @staticmethod
+    def _port_type_of(ports: PortsData, port_id: str) -> str:
+        row = ports.by_id_all.get(port_id) or {}
+        return str(row.get("port_type") or "").strip().upper()
+
+    def _strip_a_aa_rows(
+        self,
+        clean_rows: list[dict],
+        duplicate_rows: list[dict],
+        ports: PortsData,
+    ) -> tuple[list[dict], list[dict], int]:
+        kept: list[dict] = []
+        removed: list[dict] = []
+        for row in clean_rows:
+            load_type = self._port_type_of(
+                ports, _normalize_id(row.get("load_port_id"))
+            )
+            disch_type = self._port_type_of(
+                ports, _normalize_id(row.get("disch_port_id"))
+            )
+            if load_type in {"A", "AA"} or disch_type in {"A", "AA"}:
+                removed.append(row)
+            else:
+                kept.append(row)
+        return kept, duplicate_rows + removed, len(removed)
 
     def _read_ports_csv(self, path: str) -> PortsData:
         with open(path, newline="", encoding="utf-8-sig") as file:
