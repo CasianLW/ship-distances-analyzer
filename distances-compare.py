@@ -5,6 +5,7 @@ import tkinter as tk
 import tkinter.filedialog  # Ensures PyInstaller bundles submodules
 import tkinter.messagebox  # Ensures PyInstaller bundles submodules
 import tkinter.ttk  # Ensures PyInstaller bundles submodules
+from collections import defaultdict
 from tkinter import filedialog, messagebox, ttk
 
 try:
@@ -56,6 +57,41 @@ HUMAN_COLUMNS = [
     "source"
 ]
 
+NO_WAYPOINT_HUMAN_COLUMNS = [
+    "from_id",
+    "from_name",
+    "to_id",
+    "to_name",
+] + [col for col in SEGMENT_COLUMNS if col not in ("load_port_id", "disch_port_id")]
+
+WAYPOINT_ISSUE_COLUMNS = [
+    "issue",
+    "note",
+    "directus_id",
+    "load_port_id",
+    "load_port_name",
+    "disch_port_id",
+    "disch_port_name",
+    "directus_total_distance",
+    "directus_total_seca_distance",
+    "directus_waypoint_data",
+    "excel_match_count",
+    "excel_id",
+    "excel_total_distance",
+    "excel_total_seca_distance",
+    "excel_waypoint_data",
+]
+
+
+HEADER_ALIASES = {
+    "waypointdata": "waypoint_data",
+    "totaldistance": "total_distance",
+    "totalsecadistance": "total_seca_distance",
+    "loadportid": "load_port_id",
+    "dischportid": "disch_port_id",
+    "dischargeportid": "disch_port_id",
+}
+
 
 def _normalize_header(value: object) -> str:
     return " ".join(
@@ -64,7 +100,9 @@ def _normalize_header(value: object) -> str:
 
 
 def _canonical_header(value: object) -> str:
-    return _normalize_header(value).replace(" ", "_")
+    normalized = _normalize_header(value).replace(" ", "_")
+    compact = normalized.replace("_", "")
+    return HEADER_ALIASES.get(normalized) or HEADER_ALIASES.get(compact) or normalized
 
 
 def _normalize_id(value: object) -> str:
@@ -83,9 +121,9 @@ def _normalize_id(value: object) -> str:
 
 
 def _distance_units(value: object) -> str:
-    raw = str(value or "").strip().replace(" ", "")
-    if raw == "":
-        return ""
+    raw = str(value or "").strip().replace(" ", "").replace("\xa0", "")
+    if raw == "" or raw.lower() in {"-", "n/a", "na", "none", "null"}:
+        return "0"
     if "," in raw and "." in raw:
         if raw.rfind(",") > raw.rfind("."):
             raw = raw.replace(".", "").replace(",", ".")
@@ -101,12 +139,59 @@ def _distance_units(value: object) -> str:
         return raw
 
 
+def _canonical_row(row: dict) -> dict:
+    out: dict[str, object] = {}
+    for key, value in row.items():
+        if key is None:
+            continue
+        canon = _canonical_header(key)
+        if not canon:
+            continue
+        if canon not in out or (
+            not str(out.get(canon) or "").strip() and str(value or "").strip()
+        ):
+            out[canon] = value
+    return out
+
+
+def _dupe_key(row: dict) -> tuple[str, str, str, str] | None:
+    load_id = _normalize_id(row.get("load_port_id"))
+    disch_id = _normalize_id(row.get("disch_port_id"))
+    if not load_id or not disch_id:
+        return None
+    port_a, port_b = sorted((load_id, disch_id))
+    return (
+        port_a,
+        port_b,
+        _distance_units(row.get("total_distance")),
+        _distance_units(row.get("total_seca_distance")),
+    )
+
+
 def _pair_key(row: dict) -> tuple[str, str] | None:
     load_id = _normalize_id(row.get("load_port_id"))
     disch_id = _normalize_id(row.get("disch_port_id"))
     if not load_id or not disch_id:
         return None
     return tuple(sorted((load_id, disch_id)))
+
+
+def _waypoint_match_key(row: dict) -> tuple[str, str, str, str] | None:
+    load_id = _normalize_id(row.get("load_port_id"))
+    disch_id = _normalize_id(row.get("disch_port_id"))
+    if not load_id or not disch_id:
+        return None
+    return (
+        load_id,
+        disch_id,
+        _distance_units(row.get("total_distance")),
+        _distance_units(row.get("total_seca_distance")),
+    )
+
+
+def _is_empty_waypoint(value: object) -> bool:
+    raw = str(value or "").strip().lower()
+    return raw in {"", "[]", "{}", "null", "none", "nil"}
 
 
 def _distance_signature(row: dict) -> tuple:
@@ -131,6 +216,10 @@ class DistancesCompareApp:
 
         self.diff_machine_rows: list[dict] = []
         self.diff_human_rows: list[dict] = []
+        self.merged_directus_rows: list[dict] = []
+        self.directus_fieldnames: list[str] = []
+        self.waypoint_issue_rows: list[dict] = []
+        self.no_waypoint_human_rows: list[dict] = []
         self.result_ready = False
         self.analysis_thread = None
 
@@ -247,6 +336,13 @@ class DistancesCompareApp:
             side="left"
         )
 
+        self.ignore_dupes_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            top,
+            text="Ignore dupes for both CSV",
+            variable=self.ignore_dupes_var,
+        ).pack(side="left", padx=12)
+
         files = ttk.LabelFrame(self.root, text="CSV Inputs", padding=12)
         files.pack(fill="x", padx=12, pady=(0, 12))
 
@@ -323,6 +419,33 @@ class DistancesCompareApp:
         )
         self.download_human_btn.pack(side="left", padx=8)
 
+        btns2 = ttk.Frame(result_frame)
+        btns2.pack(fill="x", pady=(8, 0))
+
+        self.download_merged_btn = ttk.Button(
+            btns2,
+            text="Download Directus with Excel waypoints",
+            command=self.download_merged_csv,
+        )
+        self.download_merged_btn.pack(side="left")
+
+        self.download_waypoint_issues_btn = ttk.Button(
+            btns2,
+            text="Download waypoint merge issues",
+            command=self.download_waypoint_issues_csv,
+        )
+        self.download_waypoint_issues_btn.pack(side="left", padx=8)
+
+        btns3 = ttk.Frame(result_frame)
+        btns3.pack(fill="x", pady=(8, 0))
+
+        self.download_no_waypoint_human_btn = ttk.Button(
+            btns3,
+            text="Download Directus CSV without waypoint data (human)",
+            command=self.download_no_waypoint_human_csv,
+        )
+        self.download_no_waypoint_human_btn.pack(side="left")
+
         self._set_download_buttons_state(enabled=False)
 
     def _idle_message(self) -> str:
@@ -331,7 +454,9 @@ class DistancesCompareApp:
             "Pairs are matched unordered (A→B = B→A).\n"
             "Total / SECA: integer part only, no rounding (4844.38 and 4844.39 = 4844).\n"
             "Downloads stack Directus then Excel for each differing pair,\n"
-            "with a final source column (directus / excel)."
+            "with a final source column (directus / excel).\n"
+            "Also copies Excel waypoint_data onto Directus rows when load, disch,\n"
+            "and total/SECA units match (A→B first, then B→A)."
         )
 
     def show_info(self) -> None:
@@ -341,7 +466,9 @@ class DistancesCompareApp:
             + "\n\nRequired on both CSVs:\n"
             + "\t".join(REQUIRED_DISTANCE_FIELDS)
             + "\n\nPorts CSV: id, port (for human names).\n\n"
-            "Compare:\n"
+            "- If 'Ignore dupes for both CSV' is on, drop extra rows with the same\n"
+            "  unordered load/disch pair and same total/SECA units (A→B = B→A),\n"
+            "  like Distances: remove dupes; first row is kept.\n"
             "- Match the same unordered load/disch pair (A→B and B→A).\n"
             "- Total and SECA: only the integer part before '.' or ',' is compared "
             "(no rounding: 4844.380 and 4844.3816 are both 4844).\n"
@@ -350,7 +477,12 @@ class DistancesCompareApp:
             "- Pairs only in Directus or only in Excel are counted, not downloaded.\n"
             "- Different CSV: original segment format + source column.\n"
             "- Human CSV: port names + distances, dates, flags + source column.\n"
-            "- Rows are stacked (Directus then Excel) so you can compare side by side."
+            "- Rows are stacked (Directus then Excel) so you can compare side by side.\n"
+            "- Directus with Excel waypoints: copy Excel waypoint_data onto Directus\n"
+            "  when load ID, disch ID, and total/SECA units match; try A→B first,\n"
+            "  then B→A if A→B is not found.\n"
+            "- Waypoint merge issues CSV: missing Excel waypoints, and Directus rows\n"
+            "  matched by more than one Excel waypoint_data."
         )
         messagebox.showinfo("Compare two distances CSV", message)
 
@@ -488,9 +620,18 @@ class DistancesCompareApp:
 
     def _run_processing(self) -> None:
         try:
-            directus_rows = self._read_distance_rows(self.directus_csv_path)
-            excel_rows = self._read_distance_rows(self.excel_csv_path)
+            directus_fieldnames, directus_rows = self._read_distance_rows(
+                self.directus_csv_path
+            )
+            _, excel_rows = self._read_distance_rows(self.excel_csv_path)
             ports_by_id = self._read_ports_by_id(self.ports_csv_path)
+            directus_input = len(directus_rows)
+            excel_input = len(excel_rows)
+            directus_ignored = 0
+            excel_ignored = 0
+            if self.ignore_dupes_var.get():
+                directus_rows, directus_ignored = self._ignore_dupes(directus_rows)
+                excel_rows, excel_ignored = self._ignore_dupes(excel_rows)
             directus_index, directus_dupes = self._index_by_pair(directus_rows)
             excel_index, excel_dupes = self._index_by_pair(excel_rows)
             payload = self._compare(
@@ -498,14 +639,22 @@ class DistancesCompareApp:
                 excel_index,
                 ports_by_id,
             )
+            merge = self._merge_excel_waypoints(
+                directus_rows, excel_rows, ports_by_id
+            )
             payload.update(
                 {
-                    "directus_input": len(directus_rows),
-                    "excel_input": len(excel_rows),
+                    "directus_input": directus_input,
+                    "excel_input": excel_input,
+                    "ignore_dupes": self.ignore_dupes_var.get(),
+                    "directus_ignored_dupes": directus_ignored,
+                    "excel_ignored_dupes": excel_ignored,
                     "directus_pairs": len(directus_index),
                     "excel_pairs": len(excel_index),
                     "directus_dupes": directus_dupes,
                     "excel_dupes": excel_dupes,
+                    "directus_fieldnames": directus_fieldnames,
+                    **merge,
                 }
             )
         except Exception as exc:
@@ -522,6 +671,10 @@ class DistancesCompareApp:
     def _on_processing_done(self, payload: dict) -> None:
         self.diff_machine_rows = payload["machine_rows"]
         self.diff_human_rows = payload["human_rows"]
+        self.merged_directus_rows = payload["merged_rows"]
+        self.directus_fieldnames = payload["directus_fieldnames"]
+        self.waypoint_issue_rows = payload["issue_rows"]
+        self.no_waypoint_human_rows = payload["no_waypoint_human_rows"]
         self.result_ready = True
         self._set_download_buttons_state(enabled=True)
         self.start_btn.config(state="normal")
@@ -531,6 +684,10 @@ class DistancesCompareApp:
             "Résultat\n\n"
             f"Directus input rows:\t{payload['directus_input']}\n"
             f"Excel input rows:\t{payload['excel_input']}\n"
+            f"Ignore dupes for both CSV:\t"
+            f"{'on' if payload['ignore_dupes'] else 'off'}\n"
+            f"Dupes ignored (Directus):\t{payload['directus_ignored_dupes']}\n"
+            f"Dupes ignored (Excel):\t{payload['excel_ignored_dupes']}\n"
             f"Directus unique pairs:\t{payload['directus_pairs']}\n"
             f"Excel unique pairs:\t{payload['excel_pairs']}\n"
             f"Extra same-pair rows skipped (Directus):\t{payload['directus_dupes']}\n"
@@ -540,13 +697,24 @@ class DistancesCompareApp:
             f"Only in Directus (not exported):\t{payload['only_directus']}\n"
             f"Only in Excel (not exported):\t{payload['only_excel']}\n"
             f"Export rows (2 per pair):\t{len(self.diff_machine_rows)}\n\n"
-            "Downloads: only pairs present in both CSVs with different units.\n"
-            "Each pair is 2 stacked rows: Directus then Excel."
+            "Waypoint copy (A→B first, then B→A; same total/SECA units):\n"
+            f"Excel waypoints copied onto Directus:\t{payload['waypoints_copied']}\n"
+            f"Missing waypoint data:\t{payload['missing_waypoints']}\n"
+            f"Attention, 2 waypoint datas for a single Directus line:\t"
+            f"{payload['waypoint_conflicts']}\n"
+            f"Directus rows still without waypoint data:\t"
+            f"{len(self.no_waypoint_human_rows)}\n\n"
+            "Downloads: different pairs, Directus with Excel waypoints,\n"
+            "waypoint merge issues, and Directus rows without waypoint data (human)."
         )
 
     def reset_output(self) -> None:
         self.diff_machine_rows = []
         self.diff_human_rows = []
+        self.merged_directus_rows = []
+        self.directus_fieldnames = []
+        self.waypoint_issue_rows = []
+        self.no_waypoint_human_rows = []
         self.result_ready = False
         self._set_download_buttons_state(enabled=False)
         self.progress.pack_forget()
@@ -557,6 +725,9 @@ class DistancesCompareApp:
         state = "normal" if enabled else "disabled"
         self.download_machine_btn.config(state=state)
         self.download_human_btn.config(state=state)
+        self.download_merged_btn.config(state=state)
+        self.download_waypoint_issues_btn.config(state=state)
+        self.download_no_waypoint_human_btn.config(state=state)
 
     def _set_output(self, text: str) -> None:
         self.output_text.configure(state="normal")
@@ -564,18 +735,17 @@ class DistancesCompareApp:
         self.output_text.insert("1.0", text)
         self.output_text.configure(state="disabled")
 
-    def _read_distance_rows(self, path: str) -> list[dict]:
+    def _read_distance_rows(self, path: str) -> tuple[list[str], list[dict]]:
         with open(path, newline="", encoding="utf-8-sig") as file:
             sample = file.read(8192)
             file.seek(0)
             dialect = self._detect_csv_dialect(sample)
             reader = csv.DictReader(file, dialect=dialect)
+            fieldnames = list(reader.fieldnames or [])
             rows = []
             for row in reader:
-                rows.append(
-                    {_canonical_header(key): value for key, value in row.items()}
-                )
-        return rows
+                rows.append(_canonical_row(row))
+        return fieldnames, rows
 
     def _read_ports_by_id(self, path: str) -> dict[str, dict]:
         with open(path, newline="", encoding="utf-8-sig") as file:
@@ -606,6 +776,140 @@ class DistancesCompareApp:
                 continue
             by_pair[key] = row
         return by_pair, skipped
+
+    @staticmethod
+    def _ignore_dupes(rows: list[dict]) -> tuple[list[dict], int]:
+        kept: list[dict] = []
+        seen: set[tuple[str, str, str, str]] = set()
+        ignored = 0
+        for row in rows:
+            key = _dupe_key(row)
+            if key is None:
+                kept.append(row)
+                continue
+            if key in seen:
+                ignored += 1
+                continue
+            seen.add(key)
+            kept.append(row)
+        return kept, ignored
+
+    def _merge_excel_waypoints(
+        self,
+        directus_rows: list[dict],
+        excel_rows: list[dict],
+        ports_by_id: dict[str, dict],
+    ) -> dict:
+        excel_index: dict[tuple[str, str, str, str], list[dict]] = defaultdict(list)
+        for row in excel_rows:
+            key = _waypoint_match_key(row)
+            if key:
+                excel_index[key].append(row)
+
+        merged_rows: list[dict] = []
+        issue_rows: list[dict] = []
+        copied = 0
+        missing = 0
+        conflicts = 0
+
+        for directus_row in directus_rows:
+            key = _waypoint_match_key(directus_row)
+            matches = excel_index.get(key, []) if key else []
+            if not matches and key:
+                reversed_key = (key[1], key[0], key[2], key[3])
+                if reversed_key != key:
+                    matches = excel_index.get(reversed_key, [])
+            out = dict(directus_row)
+            if len(matches) > 1:
+                conflicts += 1
+                for excel_row in matches:
+                    issue_rows.append(
+                        self._waypoint_issue_row(
+                            "conflict",
+                            "Attention, 2 waypoint datas for a single Directus line",
+                            directus_row,
+                            excel_row,
+                            len(matches),
+                            ports_by_id,
+                        )
+                    )
+            elif len(matches) == 1:
+                waypoint = matches[0].get("waypoint_data", "")
+                if _is_empty_waypoint(waypoint):
+                    missing += 1
+                    issue_rows.append(
+                        self._waypoint_issue_row(
+                            "missing",
+                            "Missing waypoint data",
+                            directus_row,
+                            matches[0],
+                            1,
+                            ports_by_id,
+                        )
+                    )
+                else:
+                    out["waypoint_data"] = waypoint
+                    copied += 1
+            else:
+                missing += 1
+                issue_rows.append(
+                    self._waypoint_issue_row(
+                        "missing",
+                        "Missing waypoint data",
+                        directus_row,
+                        None,
+                        0,
+                        ports_by_id,
+                    )
+                )
+            merged_rows.append(out)
+
+        no_waypoint_human_rows = [
+            self._human_row(row, "directus", ports_by_id)
+            for row in merged_rows
+            if _is_empty_waypoint(row.get("waypoint_data"))
+        ]
+
+        return {
+            "merged_rows": merged_rows,
+            "issue_rows": issue_rows,
+            "no_waypoint_human_rows": no_waypoint_human_rows,
+            "waypoints_copied": copied,
+            "missing_waypoints": missing,
+            "waypoint_conflicts": conflicts,
+        }
+
+    def _waypoint_issue_row(
+        self,
+        issue: str,
+        note: str,
+        directus_row: dict,
+        excel_row: dict | None,
+        match_count: int,
+        ports_by_id: dict[str, dict],
+    ) -> dict:
+        excel_row = excel_row or {}
+        load_id = _normalize_id(directus_row.get("load_port_id"))
+        disch_id = _normalize_id(directus_row.get("disch_port_id"))
+        return {
+            "issue": issue,
+            "note": note,
+            "directus_id": directus_row.get("id", ""),
+            "load_port_id": load_id,
+            "load_port_name": self._port_label(ports_by_id, load_id),
+            "disch_port_id": disch_id,
+            "disch_port_name": self._port_label(ports_by_id, disch_id),
+            "directus_total_distance": directus_row.get("total_distance", ""),
+            "directus_total_seca_distance": directus_row.get(
+                "total_seca_distance", ""
+            ),
+            "directus_waypoint_data": directus_row.get("waypoint_data", ""),
+            "excel_match_count": str(match_count),
+            "excel_id": excel_row.get("id", ""),
+            "excel_total_distance": excel_row.get("total_distance", ""),
+            "excel_total_seca_distance": excel_row.get("total_seca_distance", ""),
+            "excel_waypoint_data": excel_row.get("waypoint_data", ""),
+        }
 
     def _port_label(self, ports_by_id: dict[str, dict], port_id: str) -> str:
         row = ports_by_id.get(port_id) or {}
@@ -733,6 +1037,67 @@ class DistancesCompareApp:
         messagebox.showinfo(
             "Saved",
             f"Different distances (human) saved ({len(self.diff_human_rows)} rows):\n{path}",
+        )
+
+    def download_merged_csv(self) -> None:
+        if not self.result_ready:
+            return
+        path = filedialog.asksaveasfilename(
+            title="Save Directus with Excel waypoints",
+            defaultextension=".csv",
+            initialfile="directus-with-excel-waypoints.csv",
+            filetypes=[("CSV Files", "*.csv")],
+        )
+        if not path:
+            return
+        fieldnames = self.directus_fieldnames or SEGMENT_COLUMNS
+        if not any(_canonical_header(name) == "waypoint_data" for name in fieldnames):
+            fieldnames = list(fieldnames) + ["waypoint_data"]
+        exported = [
+            {name: row.get(_canonical_header(name), "") for name in fieldnames}
+            for row in self.merged_directus_rows
+        ]
+        self._write_csv(path, fieldnames, exported)
+        messagebox.showinfo(
+            "Saved",
+            f"Directus with Excel waypoints saved ({len(exported)} rows):\n{path}",
+        )
+
+    def download_waypoint_issues_csv(self) -> None:
+        if not self.result_ready:
+            return
+        path = filedialog.asksaveasfilename(
+            title="Save waypoint merge issues",
+            defaultextension=".csv",
+            initialfile="waypoint-merge-issues.csv",
+            filetypes=[("CSV Files", "*.csv")],
+        )
+        if not path:
+            return
+        self._write_csv(path, WAYPOINT_ISSUE_COLUMNS, self.waypoint_issue_rows)
+        messagebox.showinfo(
+            "Saved",
+            f"Waypoint merge issues saved ({len(self.waypoint_issue_rows)} rows):\n{path}",
+        )
+
+    def download_no_waypoint_human_csv(self) -> None:
+        if not self.result_ready:
+            return
+        path = filedialog.asksaveasfilename(
+            title="Save Directus CSV without waypoint data (human)",
+            defaultextension=".csv",
+            initialfile="directus-without-waypoint-data-human.csv",
+            filetypes=[("CSV Files", "*.csv")],
+        )
+        if not path:
+            return
+        self._write_csv(
+            path, NO_WAYPOINT_HUMAN_COLUMNS, self.no_waypoint_human_rows
+        )
+        messagebox.showinfo(
+            "Saved",
+            "Directus without waypoint data (human) saved "
+            f"({len(self.no_waypoint_human_rows)} rows):\n{path}",
         )
 
     @staticmethod
