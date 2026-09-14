@@ -25,6 +25,7 @@ def _run_tool(tool_key: str) -> None:
     script_map = {
         "complex": "complex-distances-analyzer.py",
         "dedupe_waypoints": "distances-dedupe-waypoints.py",
+        "compare": "distances-compare.py",
     }
     script_name = script_map.get(tool_key)
     if not script_name:
@@ -48,7 +49,7 @@ def main() -> None:
 
     root = tk.Tk()
     root.title(f"Ship Port Distance Helper v{__version__}")
-    root.geometry("520x280")
+    root.geometry("520x340")
 
     frame = ttk.Frame(root, padding=24)
     frame.pack(fill="both", expand=True)
@@ -67,6 +68,13 @@ def main() -> None:
         frame,
         text="Distances: remove dupes",
         command=lambda: _launch_tool(root, "dedupe_waypoints"),
+        width=46,
+    ).pack(pady=6)
+
+    ttk.Button(
+        frame,
+        text="Compare two distances CSV",
+        command=lambda: _launch_tool(root, "compare"),
         width=46,
     ).pack(pady=6)
 
